@@ -1,0 +1,3 @@
+[submodule "litecoin-oyo-fork"]
+	path = litecoin-oyo-fork
+	url = https://github.com/PiDmitrius/litecoin-oyo-fork.git
