@@ -23,6 +23,7 @@ test -f liboyoltc/lib/liboyoltc_bundle.a || {
 
 GOROOT_HOST="$(go env GOROOT)"
 GOMODCACHE_HOST="$(go env GOMODCACHE)"
+mkdir -p "$GOMODCACHE_HOST"
 # Mount GOROOT at its native path so internal RELATIVE symlinks still resolve
 # (Debian's /usr/lib/go-X is half symlinks into /usr/share/go-X — mount that
 # target too when it lives outside GOROOT).

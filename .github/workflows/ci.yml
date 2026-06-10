@@ -1,0 +1,56 @@
+name: ci
+
+on:
+  push:
+    branches: [dev, main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: Log in to ghcr.io
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Content-addressed: pulls existing deps-<h>/node-<h> tags; on a miss
+      # builds and pushes them. The node image is built through scripts/03
+      # (make check + functional), so node tests run exactly when the node
+      # source changed.
+      - name: Ensure build/node images
+        run: ./scripts/ci-ensure.sh --push
+
+      - name: Build liboyoltc bundle
+        run: ./scripts/04-build-liboyoltc.sh
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: oyo-web/go.mod
+          cache: false
+
+      - name: go vet
+        working-directory: oyo-web
+        run: go vet ./...
+
+      - name: Install e2e deps
+        working-directory: oyo-web/tests
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+
+      - name: Tests (go + Playwright e2e)
+        run: OYO_SKIP_DEPLOY=1 ./oyo-web/oyo-dev.sh quick
