@@ -38,68 +38,10 @@ rsync -a --checksum "$libsrc/" "$work/src/oyoltc/"
 
 cd "$work"
 
-if ! grep -q '^LIBOYOLTC=liboyoltc\.a$' src/Makefile.am; then
-  sed -i '/^LIBMW=libmw\.a$/a LIBOYOLTC=liboyoltc.a' src/Makefile.am
-fi
-
-if ! grep -q '$(LIBOYOLTC)' src/Makefile.am; then
-  awk '
-    BEGIN { in_extra = 0 }
-    /^EXTRA_LIBRARIES \+= \\/ { in_extra = 1; print; next }
-    in_extra && /^[[:space:]]*\$\(LIBMW\)$/ {
-      print "  $(LIBMW) \\"
-      print "  $(LIBOYOLTC)"
-      in_extra = 0
-      next
-    }
-    { print }
-  ' src/Makefile.am > src/Makefile.am.new
-  mv src/Makefile.am.new src/Makefile.am
-fi
-
-if ! grep -q '^# liboyoltc - external-wallet backend for Go consumers via cgo\.$' src/Makefile.am; then
-  awk '
-    /^\.PHONY: FORCE check-symbols check-security$/ {
-      print "# liboyoltc - external-wallet backend for Go consumers via cgo."
-      print "# Public ABI in src/oyoltc/oyoltc.h. Logic (chain sync, UTXO tracking,"
-      print "# reorg rollback, balances, rescan) lives here; Go side is a transport wrapper."
-      print "LIBOYOLTC_CPPFLAGS = \\"
-      print "  -I$(srcdir) \\"
-      print "  -I$(srcdir)/secp256k1-zkp/include \\"
-      print "  -I$(srcdir)/libmw/include \\"
-      print "  -I$(srcdir)/libmw/deps/crypto/include"
-      print "liboyoltc_a_CPPFLAGS = $(AM_CPPFLAGS) $(BITCOIN_INCLUDES) $(LIBOYOLTC_CPPFLAGS)"
-      print "liboyoltc_a_CXXFLAGS = $(AM_CXXFLAGS) $(PIE_FLAGS) -fvisibility=hidden"
-      print "liboyoltc_a_SOURCES = \\"
-      print "\toyoltc/oyoltc.cpp \\"
-      print "\toyoltc/oyoltc.h \\"
-      print "\toyoltc/mweb.cpp \\"
-      print "\toyoltc/mweb.h \\"
-      print "\toyoltc/stubs.cpp"
-      print ""
-      print "noinst_PROGRAMS += oyoltc-probe"
-      print "oyoltc_probe_SOURCES = oyoltc/probe.cpp oyoltc/stubs.cpp"
-      print "oyoltc_probe_CPPFLAGS = $(AM_CPPFLAGS) -I$(srcdir)/oyoltc"
-      print "oyoltc_probe_CXXFLAGS = $(AM_CXXFLAGS)"
-      print "oyoltc_probe_LDADD = \\"
-      print "  $(LIBOYOLTC) \\"
-      print "  $(LIBLEVELDB) \\"
-      print "  $(LIBMW) \\"
-      print "  $(LIBBITCOIN_COMMON) \\"
-      print "  $(LIBBITCOIN_CONSENSUS) \\"
-      print "  $(LIBBITCOIN_UTIL) \\"
-      print "  $(LIBUNIVALUE) \\"
-      print "  $(LIBBITCOIN_CRYPTO) \\"
-      print "  $(LIBSECP256K1) \\"
-      print "  $(BOOST_LIBS) \\"
-      print "  $(CRYPTO_LIBS) \\"
-      print "  $(MWEB_LIBS) \\"
-      print "  $(SQLITE_LIBS)"
-      print ""
-    }
-    { print }
-  ' src/Makefile.am > src/Makefile.am.new
-  mv src/Makefile.am.new src/Makefile.am
+echo "=== Wiring liboyoltc into src/Makefile.am ==="
+cp /src/liboyoltc/Makefile.oyoltc.include src/Makefile.oyoltc.include
+if ! grep -q '^include Makefile\.oyoltc\.include$' src/Makefile.am; then
+  printf '\ninclude Makefile.oyoltc.include\n' >> src/Makefile.am
 fi
 
 echo "=== autogen ==="
@@ -112,7 +54,7 @@ export BDB_PREFIX=/opt/db4
   BDB_CFLAGS="-I${BDB_PREFIX}/include"
 
 echo "=== build liboyoltc ==="
-make -C src -j"$jobs" liboyoltc.a oyoltc-probe
+make -C src -j"$jobs" oyoltc-bundle-libs
 
 echo "=== extracting archives ==="
 mkdir -p /out/include /out/lib

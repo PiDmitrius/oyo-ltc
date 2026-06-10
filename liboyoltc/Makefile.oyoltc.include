@@ -1,0 +1,41 @@
+# liboyoltc — external-wallet backend for Go consumers via cgo.
+# Public ABI in oyoltc/oyoltc.h. Logic (chain sync, UTXO tracking,
+# reorg rollback, balances, rescan) lives here; Go side is a transport
+# wrapper.
+#
+# This fragment is overlaid into src/ next to Makefile.am by
+# scripts/04-build-liboyoltc.sh, which appends a single
+# `include Makefile.oyoltc.include` line there (the litecoin tree wires
+# its own optional parts the same way — Makefile.test.include etc.).
+LIBOYOLTC = liboyoltc.a
+EXTRA_LIBRARIES += $(LIBOYOLTC)
+
+LIBOYOLTC_CPPFLAGS = \
+  -I$(srcdir) \
+  -I$(srcdir)/secp256k1-zkp/include \
+  -I$(srcdir)/libmw/include \
+  -I$(srcdir)/libmw/deps/crypto/include
+
+liboyoltc_a_CPPFLAGS = $(AM_CPPFLAGS) $(BITCOIN_INCLUDES) $(LIBOYOLTC_CPPFLAGS)
+liboyoltc_a_CXXFLAGS = $(AM_CXXFLAGS) $(PIE_FLAGS) -fvisibility=hidden
+liboyoltc_a_SOURCES = \
+	oyoltc/oyoltc.cpp \
+	oyoltc/oyoltc.h \
+	oyoltc/mweb.cpp \
+	oyoltc/mweb.h \
+	oyoltc/stubs.cpp
+
+# Everything liboyoltc_bundle.a is merged from (the litecoin-tree archives
+# the cgo bundle needs). One make target builds the whole set; LIBLEVELDB
+# already includes crc32c, LIBBITCOIN_CRYPTO its SIMD variants.
+oyoltc-bundle-libs: \
+  $(LIBOYOLTC) \
+  $(LIBLEVELDB) \
+  $(LIBMW) \
+  $(LIBBITCOIN_COMMON) \
+  $(LIBBITCOIN_CONSENSUS) \
+  $(LIBBITCOIN_UTIL) \
+  $(LIBUNIVALUE) \
+  $(LIBBITCOIN_CRYPTO) \
+  $(LIBSECP256K1)
+.PHONY: oyoltc-bundle-libs
