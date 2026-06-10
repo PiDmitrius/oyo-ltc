@@ -1,0 +1,10 @@
+oyo-web
+tests/node_modules/
+tests/test-results/
+TASK.md
+queue/
+oyoltc-*.db
+oyoltc-*.db-shm
+oyoltc-*.db-wal
+test-data/
+oyoltc-*.ldb/

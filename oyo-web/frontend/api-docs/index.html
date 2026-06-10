@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>OYO LTC API</title>
+  <link rel="stylesheet" href="swagger-ui.css">
+  <link rel="icon" type="image/png" sizes="32x32" href="favicon-32x32.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="favicon-16x16.png">
+  <style>
+    body { margin: 0; background: #fafafa; }
+    #swagger-ui { max-width: 1400px; margin: 0 auto; }
+    /*
+      The standalone topbar carries an editable spec-URL field — useful
+      for swagger.io's playground where users can paste different specs,
+      meaningless for a self-hosted single-spec deployment. Hide it.
+    */
+    .swagger-ui .topbar { display: none; }
+    /*
+      Hide the Servers selector entirely — the spec emits a single
+      injected entry (server-side, based on this request's host +
+      prefix), so the dropdown gives the user no real choice. The
+      target URL is already in the address bar; redundant here.
+
+      Strip the .scheme-container's white card + box-shadow — without
+      the dropdown there's nothing to host, the Authorize button just
+      floats right against the page background.
+    */
+    .swagger-ui .scheme-container {
+      background: transparent;
+      box-shadow: none;
+      padding: 0;
+      margin: 0 0 8px;
+    }
+    .swagger-ui .scheme-container .schemes {
+      margin: 0;
+      padding: 0;
+      display: flex;
+      justify-content: flex-end;
+    }
+    .swagger-ui .scheme-container .servers-title,
+    .swagger-ui .scheme-container .servers { display: none; }
+  </style>
+</head>
+<body>
+  <div id="swagger-ui"></div>
+
+  <!--
+    Self-hosted Swagger UI bundle. No CDN, no external fetch — every
+    asset (css, js, fonts, favicons) lives next to this file. The UI
+    is configured with validatorUrl=null so it never POSTs to
+    validator.swagger.io to lint the spec; everything is local.
+
+    The server-emitted spec at ../api/openapi.yaml has its `servers:`
+    URL injected based on this request's headers + the configured
+    prefix, so Swagger UI's "Try it out" lands at the right host
+    behind a reverse-proxy.
+  -->
+  <script src="swagger-ui-bundle.js"></script>
+  <script src="swagger-ui-standalone-preset.js"></script>
+  <script>
+    window.onload = function() {
+      window.ui = SwaggerUIBundle({
+        url: "../api/openapi.yaml",
+        dom_id: "#swagger-ui",
+        deepLinking: true,
+        presets: [
+          SwaggerUIBundle.presets.apis,
+          SwaggerUIStandalonePreset,
+        ],
+        plugins: [SwaggerUIBundle.plugins.DownloadUrl],
+        layout: "StandaloneLayout",
+        validatorUrl: null,            // do not phone home to validator.swagger.io
+        oauth2RedirectUrl: new URL("oauth2-redirect.html", window.location.href).href,
+        tryItOutEnabled: true,         // user can hit endpoints right from the UI
+        docExpansion: "list",
+        defaultModelsExpandDepth: 0,
+        persistAuthorization: false,
+      });
+    };
+  </script>
+</body>
+</html>

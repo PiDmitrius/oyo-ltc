@@ -1,0 +1,11 @@
+{
+  "listen": ":8880",
+  "rpc": "http://127.0.0.1:19443",
+  "rpcuser": "oyo",
+  "rpcpassword": "oyo",
+  "webuser": "",
+  "webpassword": "",
+  "prefix": "/oyo",
+  "network": "regtest",
+  "track_mempool": true
+}

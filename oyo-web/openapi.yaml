@@ -1,0 +1,987 @@
+openapi: 3.0.3
+info:
+  title: OYO LTC API
+  description: |
+    HTTP surface of the `oyo-web` service — wallet management, queue,
+    chain inspection, regtest controls. All endpoints are mounted under
+    `/api`.
+
+    See `README-OYO.md` at the repository root for the architectural
+    background (wallet kinds, send paradigm, confirm-token flow,
+    queue semantics).
+  version: 1.0.0
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+servers:
+  - url: http://localhost:8880
+    description: prod (systemd --user oyo-web.service)
+  - url: http://localhost:8881
+    description: test (oyo-dev.sh)
+
+# All endpoints under /api/* are gated by HTTP Basic Auth when the
+# server is configured with `webuser` / `webpassword`. Browser users
+# get cookie sessions via POST /login but those aren't used by API
+# clients — Basic is stateless and works from curl / Python / codegen.
+security:
+  - basicAuth: []
+
+tags:
+  - name: wallet
+    description: Wallet lifecycle, balances, addresses, sending, manual rescan.
+  - name: queue
+    description: Deferred / scheduled sends. Each task is a recipe; fee + change recompute at execution.
+  - name: chain
+    description: Drive the OYO chain mirror (sync, mempool overlay, resync).
+  - name: explorer
+    description: Block / tx / address inspection, mempool, peers, search.
+  - name: node
+    description: Node + OYO extension introspection.
+  - name: regtest
+    description: Regtest-only controls. Returns errors on main / testnet.
+
+paths:
+  # ───────────────────── node / oyo ─────────────────────
+  /api/info:
+    get:
+      tags: [node]
+      summary: Aggregated chain + network info
+      responses:
+        "200":
+          description: blockchain + network + version snapshot
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/InfoResponse" }
+
+  /api/openapi.yaml:
+    get:
+      tags: [node]
+      summary: This OpenAPI spec, served as-is
+      responses:
+        "200":
+          description: spec
+          content:
+            application/yaml:
+              schema: { type: string, format: binary }
+
+  /api/oyo:
+    get:
+      tags: [node]
+      summary: OYO RPC support detection
+      description: |
+        Reports whether the underlying litecoind has the OYO RPC
+        extensions (oyo-send, oyo-backupwallet, …) available.
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  oyo:      { type: boolean }
+                  version:  { type: integer }
+                  features: { type: array, items: { type: string } }
+
+  # ───────────────────── wallet list / lifecycle ─────────────────────
+  /api/wallets:
+    get:
+      tags: [wallet]
+      summary: List all wallets (node + OYO)
+      description: |
+        Returns one record per wallet. `kind` is `oyo` or `node`;
+        `subkind` further classifies OYO wallets as `regular`,
+        `mweb`, `universal`, or `watch` (shadow).
+      responses:
+        "200":
+          description: list
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/WalletSummary" }
+
+  /api/wallet/create:
+    post:
+      tags: [wallet]
+      summary: Create a wallet
+      description: |
+        `?type=` selects the wallet kind:
+        * `seed` — node HD wallet (Litecoin Core's `createwallet` + sethdseed).
+        * `regular` — OYO regular wallet (canonical-only).
+        * `mweb` — OYO MWEB-only wallet.
+        * `universal` — OYO universal wallet (canonical + MWEB sides).
+
+        OYO wallets require a `seed` query param (free-form string).
+        `address_count` (regular / universal) pre-allocates a P2WPKH
+        keypool. `kinds=p2wpkh` or `kinds=mweb` (universal only)
+        restricts to one side; default = both.
+      parameters:
+        - { in: query, name: name, required: true, schema: { type: string } }
+        - { in: query, name: type, required: true, schema: { type: string, enum: [seed, regular, mweb, universal] } }
+        - { in: query, name: seed, schema: { type: string }, description: "free-form seed string (required for non-seed types)" }
+        - { in: query, name: address_count, schema: { type: integer, default: 8 } }
+        - { in: query, name: kinds,         schema: { type: string }, description: "universal-only: comma-separated subset (`p2wpkh` / `mweb`)" }
+      responses:
+        "200":
+          description: created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  name: { type: string }
+                  type: { type: string, description: "`seed` or `oyo_regular` / `oyo_mweb` / `oyo_universal`" }
+                  bootstrap: { type: object, description: "OYO: scantxoutset + MWEB bootstrap result" }
+                  address: { type: string, description: "OYO mweb: first stealth address" }
+        "400": { $ref: "#/components/responses/Error400" }
+
+  /api/wallet/load:
+    post:
+      tags: [wallet]
+      summary: Load (reopen) an unloaded wallet
+      parameters:
+        - { in: query, name: name, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: loaded
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  loaded: { type: string }
+                  oyo:    { type: boolean }
+                  state:  { type: string, enum: [loaded, missing] }
+
+  /api/wallet/unload:
+    post:
+      tags: [wallet]
+      summary: Unload — close handle, keep registry entry (OYO) / forward to litecoind (node)
+      parameters:
+        - { in: query, name: name, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: unloaded
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  unloaded: { type: string }
+                  oyo:      { type: boolean }
+                  state:    { type: string }
+
+  /api/wallet/delete:
+    post:
+      tags: [wallet]
+      summary: Delete the wallet from the registry (and disk for node wallets)
+      description: |
+        For OYO wallets: drops the registry entry and pending queue
+        tasks for this wallet (marked as `failed: wallet deleted`).
+        For node wallets: forwards to `oyo-deletewallet`.
+      parameters:
+        - { in: query, name: name, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  deleted: { type: string }
+                  oyo:     { type: boolean }
+
+  # ───────────────────── wallet read ─────────────────────
+  /api/wallet/info:
+    get:
+      tags: [wallet]
+      summary: Unified wallet info (OYO + node share the same shape)
+      parameters:
+        - { in: query, name: name, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: info
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/WalletInfo" }
+
+  /api/wallet/balances:
+    get:
+      tags: [wallet]
+      summary: getbalances-shaped totals
+      parameters:
+        - { in: query, name: name, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: balances
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  mine:
+                    type: object
+                    properties:
+                      trusted:           { type: number, description: "Confirmed canonical + MWEB total, in LTC" }
+                      untrusted_pending: { type: number }
+                      immature:          { type: number }
+
+  /api/wallet/addresses:
+    get:
+      tags: [wallet]
+      summary: Per-address breakdown with mempool overlay
+      parameters:
+        - { in: query, name: name, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: addresses
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  addresses:   { type: array, items: { $ref: "#/components/schemas/AddressEntry" } }
+                  balances:    { type: object }
+                  net_pending: { type: number }
+
+  /api/wallet/newaddress:
+    post:
+      tags: [wallet]
+      summary: Allocate a fresh derived address
+      parameters:
+        - { in: query, name: name, required: true, schema: { type: string } }
+        - in: query
+          name: type
+          schema: { type: string, enum: [bech32, mweb, legacy, p2sh-segwit] }
+          description: |
+            Node wallets: any of the four. OYO regular → bech32 only.
+            OYO mweb-only → mweb only. OYO universal → bech32 or mweb
+            (defaults to mweb for backwards compat).
+      responses:
+        "200":
+          description: address
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  address: { type: string }
+                  index:   { type: integer }
+                  kind:    { type: string }
+
+  /api/wallet/utxos:
+    get:
+      tags: [wallet]
+      summary: List spendable UTXOs (canonical + MWEB)
+      parameters:
+        - { in: query, name: name, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: utxos
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/UTXO" }
+
+  /api/wallet/secrets:
+    get:
+      tags: [wallet]
+      summary: Reveal wallet secrets (DANGEROUS — seed + private keys)
+      description: >
+        Returns the wallet's seed string, per-binding WIF private keys, and
+        MWEB scan/spend secrets. Exposes full spend authority — gated behind
+        an explicit confirm=yes and whatever auth the server runs. OYO wallets
+        only; watch-only wallets have no secrets.
+      parameters:
+        - { in: query, name: name, required: true, schema: { type: string } }
+        - { in: query, name: confirm, required: true, schema: { type: string, enum: [yes] } }
+      responses:
+        "200":
+          description: secrets
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  name:      { type: string }
+                  seed:      { type: string }
+                  seed_type: { type: string }
+                  p2wpkh:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        index:   { type: integer }
+                        address: { type: string }
+                        wif:     { type: string }
+                  mweb:
+                    type: object
+                    properties:
+                      scan_secret:  { type: string }
+                      spend_secret: { type: string }
+        "400": { description: confirm=yes required }
+
+  /api/wallet/history:
+    get:
+      tags: [wallet]
+      summary: Recent transactions (node wallets only — OYO returns empty list)
+      parameters:
+        - { in: query, name: name,  required: true, schema: { type: string } }
+        - { in: query, name: count, schema: { type: integer, default: 20, maximum: 100 } }
+      responses:
+        "200":
+          description: list
+          content:
+            application/json:
+              schema: { type: array, items: { type: object } }
+
+  # ───────────────────── wallet send / estimate ─────────────────────
+  /api/wallet/estimate-send:
+    get:
+      tags: [wallet]
+      summary: Build + sign a tx without broadcasting; cache by token
+      description: |
+        Same op-pump as /api/wallet/send with `dry_run=true`. Returns
+        structured tx breakdown the frontend modal renders off, plus a
+        `confirm_token` (= txid) that /api/wallet/send accepts to
+        broadcast the cached signed bytes verbatim. TTL ≈ 5 minutes.
+      parameters:
+        - { in: query, name: name,                required: true, schema: { type: string } }
+        - { in: query, name: to,                  schema: { type: string } }
+        - { in: query, name: amount,              schema: { type: number, description: "LTC; ignored if send_all=true" } }
+        - { in: query, name: send_all,            schema: { type: boolean } }
+        - { in: query, name: fee_rate_sat_per_vb, schema: { type: integer, minimum: 1 } }
+      requestBody:
+        description: Optional JSON body for multi-recipient or manual inputs.
+        required: false
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SendBody" }
+      responses:
+        "200":
+          description: estimated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/EstimateSendResponse" }
+        "400": { $ref: "#/components/responses/Error400" }
+    post:
+      tags: [wallet]
+      summary: Same as GET, accepts the multi-recipient / manual-inputs body
+      parameters:
+        - { in: query, name: name, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SendBody" }
+      responses:
+        "200":
+          description: estimated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/EstimateSendResponse" }
+        "400": { $ref: "#/components/responses/Error400" }
+
+  /api/wallet/send:
+    post:
+      tags: [wallet]
+      summary: Build + sign + broadcast (or broadcast cached bytes by `confirm_token`)
+      description: |
+        Two flows:
+
+        1. **Confirm-after-estimate**: pass `?confirm_token=<txid>`
+           from a prior /api/wallet/estimate-send. The cached signed
+           tx_hex is broadcast verbatim — no re-build.
+        2. **Direct**: pass `?to=&amount=` (or `send_all=true`) plus
+           an optional JSON body. Server builds + signs + broadcasts
+           in one shot.
+
+        `send_all` and `outputs[]` are mutually exclusive.
+      parameters:
+        - { in: query, name: name,                required: true, schema: { type: string } }
+        - { in: query, name: confirm_token,       schema: { type: string }, description: "txid from estimate-send (broadcast cached bytes; ignores other params)" }
+        - { in: query, name: to,                  schema: { type: string } }
+        - { in: query, name: amount,              schema: { type: number } }
+        - { in: query, name: send_all,            schema: { type: boolean } }
+        - { in: query, name: fee_rate_sat_per_vb, schema: { type: integer } }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SendBody" }
+      responses:
+        "200":
+          description: broadcast
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, example: sent }
+                  txid:   { type: string }
+        "400": { $ref: "#/components/responses/Error400" }
+        "410": { description: "confirm_token expired or unknown" }
+        "502": { description: "upstream error (node reject, signing failure)" }
+
+  /api/wallet/rescan:
+    get:
+      tags: [wallet]
+      summary: Get rescan status
+      parameters:
+        - { in: query, name: name, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { scanning: { type: boolean } }
+    post:
+      tags: [wallet]
+      summary: Sync chain mirror + run scantxoutset against the wallet's bindings
+      parameters:
+        - { in: query, name: name,   required: true, schema: { type: string } }
+        - { in: query, name: action, schema: { type: string, enum: [start, abort], default: start } }
+      responses:
+        "200": { description: "rescanned" }
+        "501": { description: "node wallets unsupported (sync via the node)" }
+
+  /api/wallet/export:
+    get:
+      tags: [wallet]
+      summary: Backup node wallet as binary `.dat` (verifies via restore-and-compare round trip)
+      parameters:
+        - { in: query, name: name, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: binary .dat attachment
+          content:
+            application/octet-stream:
+              schema: { type: string, format: binary }
+        "501": { description: "OYO wallets have no .dat file" }
+
+  /api/wallet/import:
+    post:
+      tags: [wallet]
+      summary: Restore a node wallet from a binary `.dat`
+      parameters:
+        - { in: query, name: name, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema: { type: string, format: binary }
+      responses:
+        "200": { description: "imported" }
+
+  /api/wallet/shadow:
+    post:
+      tags: [wallet]
+      summary: Build a shadow OYO wallet that mirrors a node wallet's addresses
+      description: |
+        Diagnostic tool: imports every address known to `?source=` into
+        a watch-only OYO wallet `?name=`, then runs scantxoutset so the
+        shadow's confirmed UTXO set matches the source. Used by the
+        balance-parity tests.
+      parameters:
+        - { in: query, name: source, required: true, schema: { type: string } }
+        - { in: query, name: name,   required: true, schema: { type: string } }
+      responses:
+        "200": { description: "created" }
+
+  /api/wallet/shadow/refresh:
+    post:
+      tags: [wallet]
+      summary: Re-import addresses from `source` into the existing shadow wallet
+      parameters:
+        - { in: query, name: source, required: true, schema: { type: string } }
+        - { in: query, name: name,   required: true, schema: { type: string } }
+      responses:
+        "200": { description: "refreshed" }
+
+  # ───────────────────── chain ─────────────────────
+  /api/chain/sync:
+    post:
+      tags: [chain]
+      summary: Drive liboyoltc chain sync once (no rescan)
+      responses:
+        "200": { description: "synced" }
+
+  /api/chain/mempool-sync:
+    post:
+      tags: [chain]
+      summary: Drive a single mempool sync pass
+      responses:
+        "200": { description: "synced" }
+
+  /api/syncing:
+    get:
+      tags: [chain]
+      summary: Aggregated sync state (node + oyoltc + wallets)
+      responses:
+        "200":
+          description: snapshot
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  node:    { type: object }
+                  oyoltc:  { type: object }
+                  wallets: { type: object }
+
+  /api/syncing/resync:
+    post:
+      tags: [chain]
+      summary: Wipe the local MWEB mirror and rebuild from the node
+      responses:
+        "200": { description: "resynced" }
+
+  # ───────────────────── queue ─────────────────────
+  /api/queue:
+    get:
+      tags: [queue]
+      summary: List queue tasks (optionally filter by wallet)
+      parameters:
+        - { in: query, name: wallet, schema: { type: string } }
+      responses:
+        "200":
+          description: list
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/QueueTask" }
+    post:
+      tags: [queue]
+      summary: Add a task (recipe, optionally scheduled)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/QueueTaskBody" }
+      responses:
+        "200":
+          description: created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/QueueTask" }
+        "400": { $ref: "#/components/responses/Error400" }
+        "404": { description: "wallet not found" }
+
+  "/api/queue/{id}":
+    parameters:
+      - { in: path, name: id, required: true, schema: { type: string }, description: "Task id (16 hex chars)" }
+    get:
+      tags: [queue]
+      summary: Single task detail
+      responses:
+        "200":
+          description: task
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/QueueTask" }
+        "404": { description: "task not found" }
+    delete:
+      tags: [queue]
+      summary: Remove a task (frees nothing — recipe storage only)
+      responses:
+        "200": { description: removed }
+        "404": { description: "task not found" }
+
+  "/api/queue/{id}/run":
+    post:
+      tags: [queue]
+      summary: Execute a pending task immediately
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: post-run state
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/QueueTask" }
+        "400": { description: "task is not pending" }
+
+  # ───────────────────── explorer ─────────────────────
+  /api/search:
+    get:
+      tags: [explorer]
+      summary: Smart lookup (block height / hash, txid, address)
+      parameters:
+        - { in: query, name: q, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: result envelope
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  type:   { type: string, enum: [block, tx, address] }
+                  data:   { type: object }
+
+  /api/blocks:
+    get:
+      tags: [explorer]
+      summary: Recent blocks
+      responses:
+        "200":
+          description: list
+          content:
+            application/json:
+              schema: { type: array, items: { type: object } }
+
+  "/api/block/{id}":
+    get:
+      tags: [explorer]
+      summary: Block by hash or height
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: block
+          content:
+            application/json:
+              schema: { type: object }
+
+  "/api/tx/{txid}":
+    get:
+      tags: [explorer]
+      summary: Transaction by id
+      parameters:
+        - { in: path, name: txid, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: tx
+          content:
+            application/json:
+              schema: { type: object }
+
+  "/api/address/{addr}":
+    get:
+      tags: [explorer]
+      summary: Address info (canonical or MWEB stealth)
+      description: |
+        For canonical addresses: scantxoutset against the address.
+        For MWEB stealth: surfaces balance from the OYO wallet that
+        owns the scan key (foreign stealth addresses return empty).
+      parameters:
+        - { in: path, name: addr, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: address info
+          content:
+            application/json:
+              schema: { type: object }
+
+  /api/mempool:
+    get:
+      tags: [explorer]
+      summary: Mempool snapshot
+      responses:
+        "200":
+          description: snapshot
+          content:
+            application/json:
+              schema: { type: object }
+
+  /api/fees:
+    get:
+      tags: [explorer]
+      summary: Fee-rate presets (sat/vB)
+      description: >
+        low/normal/high presets mapped from estimatesmartfee conf targets
+        24/6/1, plus the relay floor. Falls back to the floor when the node
+        has no fee estimate (e.g. regtest).
+      responses:
+        "200":
+          description: presets
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  floor: { type: integer }
+                  presets:
+                    type: object
+                    properties:
+                      low:    { type: integer }
+                      normal: { type: integer }
+                      high:   { type: integer }
+
+  /api/peers:
+    get:
+      tags: [explorer]
+      summary: Connected peers
+      responses:
+        "200":
+          description: list
+          content:
+            application/json:
+              schema: { type: array, items: { type: object } }
+
+  # ───────────────────── regtest ─────────────────────
+  /api/mine:
+    post:
+      tags: [regtest]
+      summary: Mine N blocks (regtest only)
+      parameters:
+        - { in: query, name: count,   schema: { type: integer, default: 1 } }
+        - { in: query, name: address, schema: { type: string }, description: "Coinbase recipient. Defaults to a wallet-derived address." }
+      responses:
+        "200":
+          description: mined
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  address: { type: string }
+                  blocks:  { type: array, items: { type: string } }
+
+components:
+  securitySchemes:
+    basicAuth:
+      type: http
+      scheme: basic
+      description: |
+        HTTP Basic Auth — every request carries `Authorization: Basic
+        base64(user:pass)`. Validated against the server's configured
+        `webuser` / `webpassword`.
+
+  responses:
+    Error400:
+      description: Validation error
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Error401:
+      description: Unauthorized — missing or invalid credentials
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error: { type: string }
+
+    InfoResponse:
+      type: object
+      properties:
+        blockchain: { type: object }
+        network:    { type: object }
+
+    WalletSummary:
+      type: object
+      properties:
+        name:     { type: string }
+        loaded:   { type: boolean }
+        kind:     { type: string, enum: [oyo, node] }
+        subkind:  { type: string, enum: [regular, mweb, universal, watch, hd], description: "OYO subkind or `hd` for node wallets" }
+        desync:   { type: boolean, description: "OYO-only; surfaces address-level desync" }
+        info:     { type: object }
+        balances: { type: object }
+
+    WalletInfo:
+      description: |
+        Unified shape for OYO and node wallets. Canonical-side
+        balances at the top level; MWEB balances under `mweb`.
+        Node wallets additionally pass through their HD-introspection
+        fields (hdseedid, keypoolsize, scanning, …).
+      type: object
+      properties:
+        name:            { type: string }
+        kind:            { type: string, enum: [oyo, node] }
+        subkind:         { type: string }
+        watch_only:      { type: boolean }
+        confirmed_sat:   { type: integer, description: "Canonical-side trusted balance in sat" }
+        available_sat:   { type: integer }
+        pending_in_sat:  { type: integer }
+        pending_out_sat: { type: integer }
+        immature_sat:    { type: integer }
+        balances:        { type: object }
+        addresses:
+          type: array
+          items: { $ref: "#/components/schemas/AddressEntry" }
+        mweb:
+          type: object
+          properties:
+            balance_sat:     { type: integer }
+            pending_in_sat:  { type: integer }
+            pending_out_sat: { type: integer }
+            addresses:
+              type: array
+              items: { $ref: "#/components/schemas/AddressEntry" }
+
+    AddressEntry:
+      type: object
+      properties:
+        address:         { type: string }
+        kind:            { type: string, enum: [p2wpkh, mweb, legacy, p2sh-segwit] }
+        index:           { type: integer }
+        confirmed_sat:   { type: integer }
+        pending_in_sat:  { type: integer }
+        pending_out_sat: { type: integer }
+        immature_sat:    { type: integer }
+
+    UTXO:
+      type: object
+      properties:
+        txid:       { type: string, description: "Canonical UTXO outpoint hash" }
+        vout:       { type: integer, description: "Canonical UTXO outpoint index" }
+        commitment: { type: string,  description: "MWEB UTXO commitment (mweb-only)" }
+        output_id:  { type: string,  description: "MWEB output identifier (mweb-only)" }
+        amount_sat: { type: integer }
+        address:    { type: string }
+        kind:       { type: string, enum: [p2wpkh, mweb] }
+
+    SendBody:
+      description: |
+        Optional body for multi-recipient and manual-input flows. Accepted
+        by /api/wallet/send and /api/wallet/estimate-send.
+      type: object
+      properties:
+        outputs:
+          type: array
+          description: |
+            All recipients must share an address class (canonical XOR
+            stealth) — mixed in one tx is rejected. Multi-recipient
+            peg-in (R→M) is not supported (libmw constraint).
+          items:
+            type: object
+            required: [address, amount_sat]
+            properties:
+              address:    { type: string }
+              amount_sat: { type: integer, minimum: 1 }
+        inputs:
+          type: array
+          description: |
+            Manual UTXO selection. Canonical paths take `{txid, vout}`,
+            MWEB path takes `{commitment}`. Mixing kinds is rejected
+            (each path expects one shape).
+          items:
+            type: object
+            properties:
+              txid:       { type: string }
+              vout:       { type: integer, minimum: 0 }
+              commitment: { type: string }
+
+    EstimateSendResponse:
+      description: |
+        Return shape of /api/wallet/estimate-send. Same fields are
+        emitted by both the OYO-side dry-run and the node-side
+        `oyo-send dry_run` flows.
+      type: object
+      properties:
+        status:               { type: string, example: estimated }
+        path:                 { type: string, enum: [regular, peg-in, peg-out, mweb] }
+        txid:                 { type: string }
+        tx_hex:               { type: string }
+        amount_sat:           { type: integer, description: "Sum of recipient credits, post-fee for send_all" }
+        fee_sat:              { type: integer }
+        vsize:                { type: integer }
+        fee_rate_sat_per_vb:  { type: integer }
+        change_sat:           { type: integer }
+        balance_delta_sat:
+          type: object
+          properties:
+            canonical_sat: { type: integer }
+            mweb_sat:      { type: integer }
+        inputs:
+          type: array
+          items:
+            type: object
+            properties:
+              txid:        { type: string }
+              vout:        { type: integer }
+              commitment:  { type: string }
+              address:     { type: string }
+              amount_sat:  { type: integer }
+              kind:        { type: string, enum: [p2wpkh, mweb] }
+              status:      { type: string, enum: [confirmed, pending] }
+        outputs:
+          type: array
+          items:
+            type: object
+            properties:
+              address:    { type: string }
+              amount_sat: { type: integer }
+              kind:       { type: string, enum: [p2wpkh, mweb, kernel, pegout] }
+              label:      { type: string, enum: [recipient, change, kernel] }
+        confirm_token:        { type: string, description: "= txid; pass to /api/wallet/send to broadcast cached bytes" }
+        would_accept:         { type: boolean }
+        reject_reason:        { type: string, description: "populated when would_accept = false" }
+
+    QueueTaskBody:
+      description: |
+        Body of POST /api/queue. Mirrors QueueTask recipe fields plus
+        an optional `scheduled_at` (unix seconds or RFC3339).
+      type: object
+      required: [wallet]
+      properties:
+        wallet:               { type: string }
+        to:                   { type: string }
+        amount_sat:           { type: integer }
+        outputs:
+          type: array
+          items:
+            type: object
+            required: [address, amount_sat]
+            properties:
+              address:    { type: string }
+              amount_sat: { type: integer }
+        send_all:             { type: boolean }
+        fee_rate_sat_per_vb:  { type: integer }
+        inputs:
+          type: array
+          items:
+            type: object
+            properties:
+              txid:       { type: string }
+              vout:       { type: integer }
+              commitment: { type: string }
+        scheduled_at:
+          type: string
+          description: |
+            Optional. Unix seconds (e.g. "1799999999") or RFC3339
+            ("2026-05-05T18:00:00Z"). Omit for manual-only
+            execution.
+
+    QueueTask:
+      type: object
+      properties:
+        id:                   { type: string, description: "16 hex chars" }
+        wallet:               { type: string }
+        to:                   { type: string }
+        amount_sat:           { type: integer }
+        outputs:
+          type: array
+          items:
+            type: object
+            properties:
+              address:    { type: string }
+              amount_sat: { type: integer }
+        send_all:             { type: boolean }
+        fee_rate_sat_per_vb:  { type: integer }
+        inputs:
+          type: array
+          items:
+            type: object
+            properties:
+              txid:       { type: string }
+              vout:       { type: integer }
+              commitment: { type: string }
+        scheduled_at:         { type: string, format: date-time, nullable: true }
+        status:               { type: string, enum: [pending, running, done, failed] }
+        txid:                 { type: string, description: "populated on done" }
+        error:                { type: string, description: "populated on failed" }
+        created_at:           { type: string, format: date-time }
+        executed_at:          { type: string, format: date-time, nullable: true }

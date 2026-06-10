@@ -1,0 +1,3069 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='15' fill='%230a0a0f' stroke='%234fc3f7' stroke-width='2'/><text x='16' y='22' text-anchor='middle' font-family='monospace' font-size='18' font-weight='bold' fill='%234fc3f7'>O</text></svg>">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#0a0a0f">
+<title>OYO LTC</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+:root {
+  --bg: #0a0a0f;
+  --surface: #12121a;
+  --border: #1e1e2e;
+  --text: #e0e0e8;
+  --dim: #888;
+  --dim2: #555;
+  --accent: #4fc3f7;
+  --green: #66bb6a;
+  --red: #ef5350;
+  --orange: #ffa726;
+}
+body {
+  font-family: 'SF Mono', 'Cascadia Code', 'Consolas', monospace;
+  font-size: 14px;
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+  overflow-y: scroll;
+}
+/* Custom scrollbars */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: var(--dim2); }
+* { scrollbar-width: thin; scrollbar-color: var(--border) var(--bg); }
+header {
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  padding: 16px 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+header h1 { font-size: 20px; font-weight: 600; color: var(--accent); cursor: pointer; }
+#status-dot {
+  width: 10px; height: 10px; border-radius: 50%;
+  background: var(--red); display: inline-block; margin-right: 8px; transition: background 0.3s;
+}
+#status-dot.ok { background: var(--green); }
+.container { max-width: 1200px; margin: 0 auto; padding: 20px; opacity: 0; }
+.container.ready { opacity: 1; transition: opacity 0.15s ease; }
+.grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; align-items: start; }
+@media (max-width: 768px) { .grid { grid-template-columns: 1fr; } }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 16px; }
+.card h2 { font-size: 13px; text-transform: uppercase; color: var(--dim); margin-bottom: 12px; letter-spacing: 1px; }
+.stat { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid var(--border); }
+.stat:last-child { border-bottom: none; }
+.stat .label { color: var(--dim); }
+.stat .value { color: var(--text); font-weight: 500; }
+.btn {
+  background: var(--accent); color: #000; border: none; padding: 8px 20px; border-radius: 6px;
+  cursor: pointer; font-family: inherit; font-size: 13px; font-weight: 600; transition: opacity 0.2s;
+}
+.btn:hover { opacity: 0.85; }
+.btn:active { opacity: 0.7; }
+.btn.danger { background: var(--red); color: #fff; }
+.btn.success { background: var(--green); color: #000; }
+.btn-sm { padding: 4px 12px; font-size: 12px; }
+.btn:disabled { opacity: 0.4; cursor: not-allowed; }
+table { width: 100%; border-collapse: collapse; }
+th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--border); font-size: 13px; }
+th { color: var(--dim); font-weight: 500; text-transform: uppercase; font-size: 11px; letter-spacing: 0.5px; }
+td { color: var(--text); }
+.link { color: var(--accent); cursor: pointer; text-decoration: none; }
+.link:hover { text-decoration: underline; }
+.hash { font-size: 12px; }
+.hash-full { font-size: 12px; word-break: break-all; }
+.copyable { cursor: pointer; position: relative; text-decoration: underline dashed var(--dim2); text-underline-offset: 3px; }
+.copyable:hover { text-decoration-color: var(--dim); }
+input[type="text"], input[type="number"], select, textarea {
+  background: var(--bg); border: 1px solid var(--border); color: var(--text);
+  padding: 8px 12px; border-radius: 6px; font-family: inherit; font-size: 13px; outline: none; width: 100%;
+}
+textarea { resize: vertical; min-height: 100px; }
+select { cursor: pointer; }
+input:focus, select:focus, textarea:focus { border-color: var(--accent); }
+.form-group { margin-bottom: 10px; }
+.form-group label { display: block; color: var(--dim); font-size: 11px; margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.5px; }
+/* Notifications */
+#notifications {
+  position: fixed; top: 70px; right: 20px; z-index: 100;
+  display: flex; flex-direction: column; gap: 8px; pointer-events: none; max-width: 400px;
+}
+.notify {
+  background: var(--surface); border: 1px solid var(--accent); color: var(--text);
+  padding: 10px 16px; border-radius: 8px; font-size: 13px; pointer-events: auto;
+  word-break: break-all; cursor: pointer; max-height: 200px; overflow: hidden;
+  opacity: 0; transform: translateX(30px); transition: opacity 0.5s ease, transform 0.5s ease;
+}
+.notify.visible { opacity: 1; transform: translateX(0); }
+.notify.error { border-color: var(--red); }
+.notify.fade-out { opacity: 0; transform: translateX(40px); }
+.notify.collapse {
+  max-height: 0 !important; padding-top: 0 !important; padding-bottom: 0 !important;
+  margin-bottom: -8px; border-width: 0;
+  transition: max-height 0.4s ease, padding 0.4s ease, margin 0.4s ease, border-width 0.4s ease;
+}
+#toast { position: fixed; top: -9999px; left: -9999px; opacity: 0; pointer-events: none; }
+/* Tabs */
+.tab-bar { display: flex; gap: 0; margin-bottom: 16px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+.tab { padding: 10px 20px; cursor: pointer; color: var(--dim); border-bottom: 2px solid transparent; transition: all 0.2s; }
+.tab:hover { color: var(--text); }
+.tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+.tab-content { display: none; }
+.tab-content.active { display: block; }
+/* Detail views */
+.detail-view { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 20px; }
+.detail-view h2 { color: var(--text); font-size: 16px; margin-bottom: 16px; }
+.detail-view .content-fade { animation: content-in 0.2s ease; }
+.detail-view .loading-fade { animation: content-in 0.3s ease; color: var(--dim); padding: 20px; }
+@keyframes content-in { from { opacity: 0; } to { opacity: 1; } }
+.detail-field { padding: 8px 0; border-bottom: 1px solid var(--border); display: flex; gap: 12px; }
+.detail-field:last-child { border-bottom: none; }
+.detail-field .df-label { color: var(--dim); min-width: 140px; flex-shrink: 0; }
+.detail-field .df-value { word-break: break-all; }
+
+/* Wallet list */
+.wallet-row {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 12px 16px; border-bottom: 1px solid var(--border); cursor: pointer; transition: background 0.15s;
+}
+.wallet-row:last-child { border-bottom: none; }
+.wallet-row:hover { background: rgba(79,195,247,0.05); }
+.wallet-row .wallet-name { color: var(--accent); font-weight: 500; }
+.wallet-row .wallet-type { color: var(--dim); font-size: 12px; margin-left: 8px; }
+.wallet-badge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  vertical-align: 1px;
+}
+.wallet-badge-node   { background: rgba(96,160,255,0.15); color: #6aa3ff; border: 1px solid rgba(96,160,255,0.3); }
+.wallet-badge-oyo    { background: rgba(180,120,255,0.15); color: #b478ff; border: 1px solid rgba(180,120,255,0.3); }
+.wallet-badge-desync { background: rgba(255,90,90,0.15);  color: #ff7676; border: 1px solid rgba(255,90,90,0.3); }
+.wallet-row .wallet-bal { white-space: nowrap; text-align: right; }
+.wallet-row .wallet-bal-main { font-weight: 500; }
+.wallet-row .wallet-bal-extra { color: var(--dim); font-size: 12px; }
+/* Wallet menu */
+.wallet-menu-item { padding: 8px 16px; cursor: pointer; font-size: 13px; }
+.wallet-menu-item:hover { background: rgba(255,255,255,0.05); }
+
+/* Custom-styled dropdown — used by the Queue tab's wallet filter and
+   anywhere else we need a popover menu that matches the app theme
+   instead of the OS-native <select>. */
+.dropdown-item {
+  padding: 8px 12px;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--text);
+  white-space: nowrap;
+}
+.dropdown-item:hover { background: rgba(255,255,255,0.06); }
+.dropdown-item[data-active="true"] {
+  background: rgba(80,140,255,0.15);
+  color: var(--text);
+}
+
+/* Confirm-modal schedule preset chips. Match the theme — rejected
+   the OS-default datetime-local widget in favor of small chips that
+   pre-fill the input with sensible offsets (+ jitter). */
+.preset-btn {
+  font-size: 11px;
+  padding: 4px 10px;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  cursor: pointer;
+}
+.preset-btn:hover { background: rgba(255,255,255,0.06); }
+.preset-btn.active { background: var(--accent); color: #000; border-color: var(--accent); }
+/* Per-row "Max" (drain) toggle — base colours live here (not inline) so
+   the .active rule can override them; inline background would win on
+   specificity otherwise. */
+.recipient-max { background: var(--border); color: var(--text); }
+.recipient-max.active { background: var(--accent); color: #000; }
+
+/* Manual input (coin-control) picker. Click-to-toggle rows in the
+   "Select inputs" modal; selected rows get the accent border + filled
+   check. Empty selection = automatic coin selection. */
+.utxo-pick {
+  display: flex; align-items: center; gap: 10px; padding: 9px 11px;
+  border: 1px solid var(--border); border-radius: 6px; margin-bottom: 6px;
+  cursor: pointer; transition: background 0.12s, border-color 0.12s;
+}
+.utxo-pick:hover { background: rgba(255,255,255,0.03); }
+.utxo-pick.sel { border-color: var(--accent); background: rgba(79,195,247,0.08); }
+.utxo-pick .chk {
+  width: 16px; height: 16px; border: 1px solid var(--dim2); border-radius: 4px;
+  flex: 0 0 auto; display: flex; align-items: center; justify-content: center;
+  font-size: 11px; font-weight: 700; color: #000; background: transparent;
+}
+.utxo-pick.sel .chk { background: var(--accent); border-color: var(--accent); }
+.utxo-kind {
+  font-size: 9px; font-weight: 600; letter-spacing: 0.5px; padding: 1px 5px;
+  border-radius: 3px; text-transform: uppercase; vertical-align: 1px;
+}
+.utxo-kind.p2wpkh, .utxo-kind.bech32 { background: rgba(96,160,255,0.15); color: #6aa3ff; }
+.utxo-kind.mweb { background: rgba(180,120,255,0.15); color: #b478ff; }
+/* Address rows */
+.addr-row {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 6px 8px; border-bottom: 1px solid var(--border); font-size: 12px; cursor: pointer;
+}
+.addr-row:last-child { border-bottom: none; }
+.addr-row .addr-idx {
+  color: var(--dim); font-family: ui-monospace, monospace;
+  min-width: 44px; flex: 0 0 auto; font-size: 11px;
+}
+.addr-row .addr { color: var(--accent); word-break: break-all; flex: 1; }
+.addr-row .bal { color: var(--text); font-weight: 500; margin-left: 12px; white-space: nowrap; }
+.addr-row:hover { background: rgba(255,255,255,0.03); }
+.spoiler-toggle { color: var(--dim); cursor: pointer; font-size: 12px; padding: 6px 8px; display: block; }
+.spoiler-toggle:hover { color: var(--text); }
+/* Explorer search */
+.explorer-search { display: flex; gap: 8px; margin-bottom: 20px; }
+.explorer-search input { font-size: 15px; padding: 12px 16px; }
+
+/* Modal */
+#modal-overlay {
+  display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.6);
+  z-index: 200; align-items: center; justify-content: center;
+}
+#modal-overlay.visible { display: flex; }
+</style>
+</head>
+<body>
+
+<header>
+  <div style="display:flex;align-items:center;">
+    <span id="status-dot"></span>
+    <h1 onclick="navigate('wallet')">OYO LTC</h1>
+  </div>
+  <div style="display:flex;align-items:center;gap:12px;">
+    <div id="header-info" style="color:var(--dim);font-size:12px;white-space:nowrap;"></div>
+    <a href="api-docs/" target="_blank" rel="noopener" id="api-docs-link" style="color:var(--dim);font-size:12px;text-decoration:none;border-bottom:1px dotted var(--dim);" title="OpenAPI / Swagger UI">API</a>
+  </div>
+</header>
+
+<div class="container">
+  <div class="tab-bar">
+    <div class="tab" data-tab="wallet">Wallet</div>
+    <div class="tab" data-tab="queue">Queue<span id="queue-tab-badge" style="display:none;margin-left:6px;font-size:10px;background:rgba(80,140,255,0.25);color:var(--text);padding:1px 6px;border-radius:8px;"></span></div>
+    <div class="tab" data-tab="explorer">Explorer</div>
+    <div class="tab" data-tab="mempool">Mempool</div>
+    <div class="tab" data-tab="peers">Peers</div>
+    <div class="tab" data-tab="syncing">Syncing</div>
+    <div class="tab" data-tab="regtest" style="display:none;">Regtest</div>
+  </div>
+
+  <!-- Wallet (list + detail) -->
+  <div id="tab-wallet" class="tab-content">
+    <!-- Wallet list view -->
+    <div id="wallet-list-view">
+      <div class="card">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">
+          <h2 style="margin-bottom:0;">Wallets</h2>
+          <div style="position:relative;">
+            <span class="link" onclick="toggleAddMenu()" style="font-size:16px;color:var(--dim);cursor:pointer;" title="Add wallet">+</span>
+            <div id="add-wallet-menu" style="display:none;position:absolute;top:100%;right:0;margin-top:4px;background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:4px 0;z-index:50;min-width:140px;box-shadow:0 4px 12px rgba(0,0,0,0.4);">
+              <div class="wallet-menu-item" onclick="hideAddMenu();showCreateWallet()">Create wallet</div>
+              <div class="wallet-menu-item" onclick="hideAddMenu();showImportDialog()">Import wallet</div>
+            </div>
+          </div>
+        </div>
+        <div id="wallet-list"></div>
+        <div id="wallet-list-empty" style="padding:20px;text-align:center;color:var(--dim);display:none;">No wallets. Create or import one.</div>
+      </div>
+    </div>
+    <!-- Wallet detail view -->
+    <div id="wallet-detail-view" style="display:none;">
+      <div class="card" style="margin-bottom:16px;padding:16px 20px;display:flex;justify-content:space-between;align-items:baseline;">
+        <div>
+          <span id="wallet-detail-name" style="font-size:18px;font-weight:600;"></span>
+          <span id="wallet-detail-type" style="color:var(--dim);font-size:12px;margin-left:8px;"></span>
+          <span class="link" id="wallet-secrets-link" onclick="showSecretsWarning()" style="display:none;margin-left:10px;font-size:11px;color:var(--orange);" title="Reveal seed + private keys (dangerous)">🔑 secrets</span>
+        </div>
+        <div id="wallet-balance-bar" style="font-size:14px;"></div>
+      </div>
+
+      <!-- Addresses -->
+      <div class="card" style="margin-bottom:16px;">
+        <h2>Addresses</h2>
+        <div id="wallet-addresses" style="max-height:400px;overflow-y:auto;"></div>
+        <div id="wallet-empty-toggle"></div>
+        <div id="wallet-empty-addrs" style="display:none;max-height:200px;overflow-y:auto;"></div>
+        <div id="wallet-newaddr-bar" style="margin-top:12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+          <button class="btn btn-sm wallet-newaddr-node" style="background:var(--border);color:var(--text);font-size:11px;" onclick="newAddressType('')">+ Default</button>
+          <button class="btn btn-sm wallet-newaddr-node" style="background:var(--border);color:var(--text);font-size:11px;" onclick="newAddressType('legacy')">+ Legacy</button>
+          <button class="btn btn-sm wallet-newaddr-node" style="background:var(--border);color:var(--text);font-size:11px;" onclick="newAddressType('bech32')">+ Bech32</button>
+          <button class="btn btn-sm wallet-newaddr-node" style="background:var(--border);color:var(--text);font-size:11px;" onclick="newAddressType('mweb')">+ MWEB</button>
+          <button class="btn btn-sm wallet-newaddr-mweb" style="background:var(--border);color:var(--text);font-size:11px;display:none;" onclick="newAddressType('')">+ New MWEB Address</button>
+          <button class="btn btn-sm wallet-newaddr-regular" style="background:var(--border);color:var(--text);font-size:11px;display:none;" onclick="newAddressType('')">+ New P2WPKH Address</button>
+          <button class="btn btn-sm wallet-newaddr-regular" style="background:var(--border);color:var(--text);font-size:11px;display:none;" onclick="newAddressType('legacy')" title="Legacy P2PKH address">+ Legacy</button>
+          <button class="btn btn-sm wallet-newaddr-regular" style="background:var(--border);color:var(--text);font-size:11px;display:none;" onclick="newAddressType('p2sh-segwit')" title="Nested SegWit (P2WPKH-in-P2SH)">+ Nested</button>
+          <button class="btn btn-sm wallet-newaddr-universal" style="background:var(--border);color:var(--text);font-size:11px;display:none;" onclick="newAddressType('p2wpkh')">+ New P2WPKH Address</button>
+          <button class="btn btn-sm wallet-newaddr-universal" style="background:var(--border);color:var(--text);font-size:11px;display:none;" onclick="newAddressType('legacy')" title="Legacy P2PKH address">+ Legacy</button>
+          <button class="btn btn-sm wallet-newaddr-universal" style="background:var(--border);color:var(--text);font-size:11px;display:none;" onclick="newAddressType('p2sh-segwit')" title="Nested SegWit (P2WPKH-in-P2SH)">+ Nested</button>
+          <button class="btn btn-sm wallet-newaddr-universal" style="background:var(--border);color:var(--text);font-size:11px;display:none;" onclick="newAddressType('mweb')">+ New MWEB Address</button>
+        </div>
+      </div>
+      <!-- Send -->
+      <div class="card" style="margin-bottom:16px;">
+        <h2 style="margin-bottom:12px;">Send</h2>
+        <!-- Recipient list. First row uses #send-to/#send-amount IDs for
+             back-compat with Max + single-send code paths. Additional
+             rows are class-tagged and posted via outputs[] body. -->
+        <div id="send-recipients">
+          <div class="send-recipient-row" data-idx="0">
+            <div class="form-group">
+              <label style="display:flex;justify-content:space-between;align-items:center;">
+                <span>To address</span>
+                <button class="recipient-remove" onclick="removeRecipient(this)" title="Remove this recipient" style="display:none;background:none;border:none;color:var(--red);cursor:pointer;font-size:14px;padding:0 4px;">×</button>
+              </label>
+              <input type="text" id="send-to" class="send-to" placeholder="Recipient address">
+            </div>
+            <div class="form-group">
+              <label>Amount (LTC) <button id="send-max-btn" class="btn btn-sm" style="font-size:11px;padding:2px 8px;background:var(--border);color:var(--text);" onclick="fillMaxSend()" title="Send all confirmed minus estimated fee">Max</button><button class="btn btn-sm recipient-max" style="font-size:11px;padding:2px 8px;display:none;" onclick="toggleRowMax(this)" title="Send the remaining balance (after fee) to this recipient">Max</button></label>
+              <input type="number" id="send-amount" class="send-amount" placeholder="0.00" step="0.00000001" oninput="onSendAmountEdit()">
+              <div id="send-fee-hint" style="font-size:11px;color:var(--dim);margin-top:4px;display:none;"></div>
+            </div>
+          </div>
+        </div>
+        <div id="send-add-recipient-row" style="margin-bottom:12px;">
+          <span class="link" onclick="addRecipient()" style="font-size:12px;color:var(--dim);">+ Add recipient</span>
+        </div>
+        <!-- Manual coin control — OYO-only. Selected UTXOs are posted as
+             cfg.inputs[] alongside outputs[]; empty = automatic selection.
+             Backend support shipped in slice 3 (sendBody.Inputs). -->
+        <div id="send-coincontrol" style="margin-bottom:12px;display:none;">
+          <span class="link" id="send-pick-link" onclick="openInputPicker()" style="font-size:12px;color:var(--dim);">⊟ Pick inputs manually</span>
+          <div id="send-coincontrol-summary" style="display:none;align-items:center;gap:10px;margin-top:6px;font-size:12px;background:rgba(79,195,247,0.06);border:1px solid var(--border);border-radius:6px;padding:8px 11px;">
+            <span style="color:var(--accent);">⊟</span>
+            <span id="send-coincontrol-text" style="color:var(--text);flex:1;"></span>
+            <span class="link" onclick="openInputPicker()" style="font-size:11px;color:var(--dim);">Edit</span>
+            <span class="link" onclick="clearManualInputs()" style="font-size:11px;color:var(--red);">× Clear</span>
+          </div>
+        </div>
+        <!-- Fee rate — Auto lets the engine estimate; presets map to
+             estimatesmartfee conf targets (24/6/1 = low/normal/high) via
+             /api/fees; custom sets an explicit sat/vB. Flows into
+             estimate/send as fee_rate_sat_per_vb. -->
+        <div id="send-fee-row" style="margin-bottom:14px;">
+          <label style="display:block;color:var(--dim);font-size:11px;margin-bottom:5px;text-transform:uppercase;letter-spacing:0.5px;">Fee rate</label>
+          <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+            <button type="button" class="btn btn-sm preset-btn fee-preset active" data-fee="auto" onclick="setFeePreset('auto')">Auto</button>
+            <button type="button" class="btn btn-sm preset-btn fee-preset" data-fee="low" onclick="setFeePreset('low')">Low</button>
+            <button type="button" class="btn btn-sm preset-btn fee-preset" data-fee="normal" onclick="setFeePreset('normal')">Normal</button>
+            <button type="button" class="btn btn-sm preset-btn fee-preset" data-fee="high" onclick="setFeePreset('high')">High</button>
+            <span style="display:inline-flex;align-items:center;gap:4px;margin-left:2px;">
+              <input type="number" id="send-fee-custom" min="1" step="1" placeholder="custom" oninput="setCustomFee()" style="width:82px;padding:4px 8px;font-size:11px;">
+              <span style="color:var(--dim);font-size:11px;">sat/vB</span>
+            </span>
+          </div>
+          <div id="send-fee-note" style="font-size:11px;color:var(--dim);margin-top:5px;">Automatic (node-estimated) fee.</div>
+        </div>
+        <!-- Custom change address (P2.3) — OYO-only advanced option. Leftover
+             funds return here instead of a fresh wallet address. Canonical
+             (non-stealth) only; sent as change_address. -->
+        <div id="send-change-row" style="margin-bottom:14px;display:none;">
+          <span class="link" id="send-change-link" onclick="toggleCustomChange()" style="font-size:12px;color:var(--dim);">⊕ Custom change address</span>
+          <div id="send-change-panel" style="display:none;margin-top:6px;">
+            <input type="text" id="send-change-address" placeholder="Change address (blank = fresh wallet address)">
+            <div style="font-size:11px;color:var(--orange);margin-top:5px;">Leftover funds return here. Must be a valid canonical address — double-check it to avoid sending change somewhere unrecoverable.</div>
+          </div>
+        </div>
+        <button class="btn danger" onclick="sendCoins()">Prepare Transaction</button>
+      </div>
+      <!-- Recent transactions -->
+      <div class="card">
+        <h2>Recent Transactions</h2>
+        <table>
+          <thead><tr><th>TxID</th><th>Category</th><th>Amount</th><th>Conf</th><th>Time</th></tr></thead>
+          <tbody id="wallet-history-table"></tbody>
+        </table>
+        <div id="wallet-history-empty" style="padding:16px;text-align:center;color:var(--dim);display:none;">No transactions yet</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Queue -->
+  <div id="tab-queue" class="tab-content">
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;gap:8px;flex-wrap:wrap;">
+        <h2 style="margin:0;">Queue</h2>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+          <!--
+            Custom-styled dropdown — native <select> renders the open
+            menu in OS chrome which clashes with our theme. Anchors the
+            popup absolutely below the trigger; click outside or pick
+            an item to close.
+          -->
+          <div class="dropdown" id="queue-filter-dropdown" style="position:relative;">
+            <button class="btn btn-sm dropdown-trigger" onclick="event.stopPropagation();toggleQueueFilter()" style="background:var(--surface);color:var(--text);font-size:11px;border:1px solid var(--border);min-width:140px;text-align:left;display:flex;align-items:center;justify-content:space-between;gap:8px;">
+              <span id="queue-filter-label">All wallets</span>
+              <span style="color:var(--dim);font-size:9px;">▾</span>
+            </button>
+            <div id="queue-filter-menu" class="dropdown-menu" style="display:none;position:absolute;top:calc(100% + 4px);right:0;background:var(--surface);border:1px solid var(--border);border-radius:4px;min-width:160px;z-index:50;box-shadow:0 4px 12px rgba(0,0,0,0.4);max-height:280px;overflow-y:auto;"></div>
+          </div>
+          <button id="queue-clear-done" class="btn btn-sm" style="background:var(--border);color:var(--dim);font-size:11px;display:none;" onclick="queueRemoveBulk('done')">Remove all done</button>
+          <button id="queue-clear-failed" class="btn btn-sm" style="background:var(--border);color:var(--red);font-size:11px;display:none;" onclick="queueRemoveBulk('failed')">Remove all failed</button>
+          <button class="btn btn-sm" style="background:var(--border);color:var(--text);font-size:11px;" onclick="loadQueue()">Refresh</button>
+        </div>
+      </div>
+      <table id="queue-table" style="margin-bottom:0;display:none;">
+        <thead>
+          <tr>
+            <th>Wallet</th>
+            <th>To</th>
+            <th>Amount</th>
+            <th>Fee rate</th>
+            <th>Schedule</th>
+            <th>Status</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="queue-rows"></tbody>
+      </table>
+      <div id="queue-empty" style="padding:16px;text-align:center;color:var(--dim);">Queue is empty</div>
+    </div>
+  </div>
+
+  <!-- Explorer -->
+  <div id="tab-explorer" class="tab-content">
+    <div class="explorer-search">
+      <input type="text" id="explorer-query" placeholder="Block height, hash, txid, or address..." onkeydown="if(event.key==='Enter')explorerSearch()">
+      <button class="btn" onclick="explorerSearch()">Search</button>
+    </div>
+    <div id="explorer-result" class="detail-view" style="display:none;"></div>
+    <!--
+      Default landing — recent blocks, refreshed alongside the global
+      ticker. Hidden when a search/route detail is active so the user
+      sees the result, not a stale list.
+    -->
+    <div id="explorer-recent" class="card" style="margin-top:12px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+        <h2 style="margin:0;">Recent blocks</h2>
+        <button class="btn btn-sm" style="background:var(--border);color:var(--text);font-size:11px;" onclick="loadRecentBlocks()">Refresh</button>
+      </div>
+      <table style="margin-bottom:0;">
+        <thead><tr><th>Height</th><th>Hash</th><th>Txs</th><th>Time</th></tr></thead>
+        <tbody id="explorer-recent-rows"></tbody>
+      </table>
+      <div id="explorer-recent-empty" style="padding:16px;text-align:center;color:var(--dim);display:none;">No blocks yet</div>
+    </div>
+  </div>
+
+  <!-- Syncing -->
+  <div id="tab-syncing" class="tab-content">
+    <div id="sync-desync-banner" class="card" style="display:none;background:rgba(255,80,80,0.15);border-color:var(--red);">
+      <div style="font-weight:600;color:var(--red);margin-bottom:4px;">Desync detected</div>
+      <div id="sync-desync-reason" style="font-size:12px;color:var(--dim);margin-bottom:8px;"></div>
+      <button class="btn danger" onclick="resyncMirror()" style="font-size:11px;padding:6px 12px;">Resync against current node</button>
+    </div>
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+        <h2 style="margin:0;">Node</h2>
+        <button class="btn danger" onclick="resyncMirror()" style="font-size:11px;padding:6px 12px;" title="Wipe the local chain mirror and rebuild it from the node">Resync mirror</button>
+      </div>
+      <table style="margin-bottom:0;"><tbody id="sync-node-table"></tbody></table>
+    </div>
+    <div class="card">
+      <h2>liboyoltc (in-memory chain mirror)</h2>
+      <table style="margin-bottom:0;"><tbody id="sync-oyoltc-table"></tbody></table>
+    </div>
+    <div class="card">
+      <h2>UTXO mirror (LevelDB)</h2>
+      <table style="margin-bottom:0;"><tbody id="sync-utxomirror-table"></tbody></table>
+    </div>
+    <div class="card">
+      <h2>OYO wallets</h2>
+      <table style="margin-bottom:0;"><tbody id="sync-wallets-table"></tbody></table>
+      <div id="sync-wallets-list" style="margin-top:8px;"></div>
+    </div>
+  </div>
+
+  <!-- Mempool -->
+  <div id="tab-mempool" class="tab-content">
+    <div class="card">
+      <h2>Pending Transactions</h2>
+      <table><thead><tr><th>TxID</th><th>Size</th><th>Fee</th><th>Time</th></tr></thead><tbody id="mempool-table"></tbody></table>
+      <div id="mempool-empty" style="padding:20px;text-align:center;color:var(--dim);">No pending transactions</div>
+    </div>
+  </div>
+
+  <!-- Peers -->
+  <div id="tab-peers" class="tab-content">
+    <div class="card">
+      <h2>Connected Peers</h2>
+      <table><thead><tr><th>ID</th><th>Address</th><th>Subversion</th><th>Height</th><th>Ping</th></tr></thead><tbody id="peers-table"></tbody></table>
+      <div id="peers-empty" style="padding:20px;text-align:center;color:var(--dim);">No connected peers</div>
+    </div>
+  </div>
+
+  <!-- Regtest -->
+  <div id="tab-regtest" class="tab-content">
+    <div class="grid">
+      <div class="card" id="mine-card">
+        <h2>Mine Blocks</h2>
+        <p style="color:var(--dim);font-size:12px;margin-bottom:16px;">Generate blocks instantly. Coinbase rewards need 100 confirmations to mature.</p>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px;">
+          <button class="btn success" onclick="mineBlocks(1)">Mine 1</button>
+          <button class="btn success" onclick="mineBlocks(10)">Mine 10</button>
+          <button class="btn success" onclick="mineBlocks(100)">Mine 100</button>
+        </div>
+        <div class="form-group">
+          <label>Mine to address (optional)</label>
+          <input type="text" id="mine-address" placeholder="Leave empty for auto">
+        </div>
+        <div class="form-group">
+          <label>Custom count</label>
+          <div style="display:flex;gap:8px;">
+            <input type="number" id="mine-count" placeholder="1" min="1" max="10000" value="1">
+            <button class="btn btn-sm" onclick="mineCustomCount()">Mine</button>
+          </div>
+        </div>
+      </div>
+      <div class="card">
+        <h2>Engine / Node</h2>
+        <div id="regtest-info"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Create wallet modal -->
+<div id="modal-overlay">
+  <div class="card" style="width:min(720px, 92vw);max-height:92vh;overflow-y:auto;" onclick="event.stopPropagation()">
+    <h2 id="modal-title">Create Wallet</h2>
+    <div id="modal-body"></div>
+  </div>
+</div>
+
+<div id="notifications"></div>
+<div id="toast"></div>
+
+<script>
+const $ = s => document.querySelector(s);
+const $$ = s => document.querySelectorAll(s);
+
+// ============================================================
+// State
+// ============================================================
+let oyoSupported = false;
+let oyoFeatures = [];
+let currentWallet = '';
+let walletListData = [];
+
+function hasOyoFeature(name) {
+  return oyoSupported && Array.isArray(oyoFeatures) && oyoFeatures.includes(name);
+}
+
+function currentWalletIsNode() {
+  if (currentWalletKind === 'node') return true;
+  const item = walletListData.find(w => w.name === currentWallet);
+  return !!item && item.kind === 'node';
+}
+
+// ============================================================
+// Clipboard
+// ============================================================
+let _lastCopyTime = 0;
+function copyToClipboard(text) {
+  const now = Date.now();
+  const showNotify = (now - _lastCopyTime) > 300;
+  _lastCopyTime = now;
+  const doCopy = () => { if (showNotify) notify('Copied: ' + text); };
+  if (navigator.clipboard) {
+    navigator.clipboard.writeText(text).then(doCopy).catch(() => { fallbackCopy(text); doCopy(); });
+  } else { fallbackCopy(text); doCopy(); }
+}
+function fallbackCopy(text) {
+  const ta = document.createElement('textarea');
+  ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+  document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta);
+}
+document.addEventListener('click', e => {
+  const el = e.target.closest('.copyable');
+  if (el) { e.stopPropagation(); copyToClipboard(el.dataset.copy || el.textContent.trim()); }
+});
+
+// ============================================================
+// Notifications
+// ============================================================
+function notify(msg, isError) {
+  const container = $('#notifications');
+  const el = document.createElement('div');
+  el.className = 'notify' + (isError ? ' error' : '');
+  el.textContent = msg;
+  el.onclick = () => dismissNotify(el);
+  container.appendChild(el);
+  el.offsetHeight;
+  el.classList.add('visible');
+  const delay = isError ? 6000 : 4000;
+  setTimeout(() => dismissNotify(el), delay);
+  const live = container.querySelectorAll('.notify:not(.fade-out)');
+  if (live.length > 10) for (let i = 0; i < live.length - 10; i++) live[i].remove();
+  const toastEl = $('#toast');
+  toastEl.textContent = msg;
+  toastEl.setAttribute('data-type', isError ? 'error' : 'info');
+  clearTimeout(notify._t);
+  notify._t = setTimeout(() => { toastEl.textContent = ''; }, delay + 1000);
+}
+function dismissNotify(el) {
+  if (!el || el._dismissing) return;
+  el._dismissing = true;
+  el.classList.add('fade-out');
+  setTimeout(() => { el.classList.add('collapse'); setTimeout(() => el.remove(), 450); }, 500);
+}
+function toast(msg, isError) { notify(msg, isError); }
+
+// ============================================================
+// Helpers
+// ============================================================
+function fmtLTC(v) {
+  if (v === undefined || v === null) return '0.00000000';
+  return Number(v).toFixed(8);
+}
+function fmtDifficulty(d) {
+  if (d === undefined || d === null) return '-';
+  const n = Number(d);
+  if (n >= 1) return n.toLocaleString(undefined, { maximumFractionDigits: 2 });
+  if (n === 0) return '0';
+  return n.toFixed(20).replace(/0+$/, '').replace(/\.$/, '');
+}
+function formatSize(bytes) {
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1024*1024) return (bytes/1024).toFixed(1) + ' KB';
+  return (bytes/1024/1024).toFixed(2) + ' MB';
+}
+function formatTime(ts) { return new Date(ts * 1000).toLocaleString(); }
+function formatDuration(seconds) {
+  if (!Number.isFinite(seconds) || seconds < 0) return '-';
+  seconds = Math.round(seconds);
+  const d = Math.floor(seconds / 86400);
+  seconds %= 86400;
+  const h = Math.floor(seconds / 3600);
+  seconds %= 3600;
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  if (d > 0) return `${d}d ${h}h`;
+  if (h > 0) return `${h}h ${m}m`;
+  if (m > 0) return `${m}m ${s}s`;
+  return `${s}s`;
+}
+function cleanVersion(v) { return (v || '').replace(/\//g, '').replace(':', ' '); }
+function stat(label, value) { return `<div class="stat"><span class="label">${label}</span><span class="value">${value}</span></div>`; }
+function field(label, value, raw) {
+  const copyAttr = raw ? ` class="copyable" data-copy="${raw}"` : '';
+  return `<div class="detail-field"><span class="df-label">${label}</span><span class="df-value"${copyAttr}>${value}</span></div>`;
+}
+function copyHash(h) { return `<span class="hash-full copyable" data-copy="${h}">${h}</span>`; }
+function linkHash(h, route) { return `<span class="hash-full link" onclick="navigate('${route}')">${h}</span>`; }
+
+const BASE = (() => { const p = location.pathname; const i = p.lastIndexOf('/'); return i > 0 ? p.substring(0, i) : ''; })();
+
+async function api(path, opts) {
+  try {
+    const resp = await fetch(BASE + '/api/' + path, opts || {});
+    if (resp.status === 401) { location.href = BASE + '/login'; return null; }
+    const ct = resp.headers.get('content-type') || '';
+    if (ct.includes('text/plain')) return await resp.text();
+    const data = await resp.json();
+    if (data.error) throw new Error(data.error);
+    return data;
+  } catch (e) { toast(e.message, true); return null; }
+}
+
+// ============================================================
+// Routing
+// ============================================================
+const TABS = ['wallet','queue','explorer','syncing','mempool','peers','regtest'];
+// Display name for a chain id. The node + engine speak the canonical short form
+// ("main"/"test"/"regtest"); the UI shows the familiar long form everywhere.
+function chainLabel(c) { return ({ main: 'mainnet', test: 'testnet', regtest: 'regtest' }[c] || c || '-'); }
+let engineSyncEstimate = { height: null, at: 0, blocksPerSec: null };
+
+function engineSyncText(nodeHeight, engineHeight) {
+  const behind = Math.max(0, nodeHeight - engineHeight);
+  const now = performance.now() / 1000;
+  if (engineSyncEstimate.height != null && engineHeight > engineSyncEstimate.height) {
+    const dt = now - engineSyncEstimate.at;
+    const dh = engineHeight - engineSyncEstimate.height;
+    if (dt > 0) {
+      const instant = dh / dt;
+      engineSyncEstimate.blocksPerSec = engineSyncEstimate.blocksPerSec == null
+        ? instant
+        : (engineSyncEstimate.blocksPerSec * 0.65 + instant * 0.35);
+    }
+  }
+  engineSyncEstimate.height = engineHeight;
+  engineSyncEstimate.at = now;
+
+  if (behind <= 0) {
+    engineSyncEstimate.blocksPerSec = null;
+    return 'synced ✓';
+  }
+  const rate = engineSyncEstimate.blocksPerSec;
+  if (!rate || rate <= 0) {
+    return 'syncing · ETA calculating';
+  }
+  const perMin = Math.round(rate * 60);
+  return `syncing · ${perMin.toLocaleString()} blocks/min · ETA ${formatDuration(behind / rate)}`;
+}
+
+function navigate(path) { history.pushState(null, '', '#' + path); handleRoute(); }
+
+function handleRoute() {
+  const hash = location.hash.slice(1) || '';
+  const [route, query = ''] = hash.split('?');
+  const params = new URLSearchParams(query);
+  const parts = route.split('/').filter(Boolean);
+
+  // Explorer deep links
+  if (parts[0] === 'block' && parts[1]) { switchTab('explorer', true); loadBlock(parts[1]); return; }
+  if (parts[0] === 'tx' && parts[1]) { switchTab('explorer', true); loadTx(parts[1]); return; }
+  if (parts[0] === 'address' && parts[1]) {
+    const limit = Number(params.get('limit')) || undefined;
+    switchTab('explorer', true);
+    loadAddress(decodeURIComponent(parts.slice(1).join('/')), limit);
+    return;
+  }
+
+  // Wallet detail: #wallet/<name>
+  if (parts[0] === 'wallet' && parts[1]) {
+    switchTab('wallet', true);
+    openWalletDetail(decodeURIComponent(parts.slice(1).join('/')));
+    return;
+  }
+
+  if (parts[0] && TABS.includes(parts[0])) { switchTab(parts[0]); return; }
+  if (!parts[0]) switchTab('wallet');
+}
+window.addEventListener('popstate', handleRoute);
+
+function switchTab(name, skipRefresh) {
+  $$('.tab').forEach(t => t.classList.remove('active'));
+  $$('.tab-content').forEach(t => t.classList.remove('active'));
+  const tab = $(`.tab[data-tab="${name}"]`);
+  if (tab) tab.classList.add('active');
+  const content = $(`#tab-${name}`);
+  if (content) content.classList.add('active');
+  // When switching to wallet tab without detail, show list
+  if (name === 'wallet' && !skipRefresh) {
+    showWalletList();
+  }
+  if (!skipRefresh) refresh();
+}
+
+$$('.tab').forEach(tab => tab.addEventListener('click', () => {
+  if (tab.dataset.tab === 'explorer') {
+    // Tab click resets the explorer to its landing — clear any
+    // active search/detail, restore the search bar, and show the
+    // recent-blocks card.
+    $('#explorer-result').style.display = 'none';
+    $('#explorer-result').innerHTML = '';
+    $('#explorer-query').value = '';
+    $('.explorer-search').style.display = '';
+    const recent = $('#explorer-recent');
+    if (recent) recent.style.display = '';
+    navigate('explorer');
+    return;
+  }
+  navigate(tab.dataset.tab);
+}));
+
+// ============================================================
+// Header Info
+// ============================================================
+async function refreshHeaderInfo() {
+  const data = await api('info');
+  if (!data) { $('#status-dot').className = ''; return; }
+  $('#status-dot').className = 'ok';
+  const bc = data.blockchain, net = data.network;
+  const ver = cleanVersion(net.subversion);
+  $('#header-info').textContent = `${chainLabel(bc.chain)} · #${bc.blocks.toLocaleString()} · ${ver}`;
+  // The Regtest tab (instant block mining) is meaningful only on regtest; on
+  // testnet/mainnet there is no such control and every other field already lives
+  // in the Syncing tab, so the tab stays hidden there.
+  const netTab = $('.tab[data-tab="regtest"]');
+  if (netTab) netTab.style.display = (bc.chain === 'regtest') ? '' : 'none';
+}
+
+// ============================================================
+// Wallet List
+// ============================================================
+function showWalletList() {
+  $('#wallet-list-view').style.display = '';
+  $('#wallet-detail-view').style.display = 'none';
+  currentWallet = '';
+  refreshWalletList();
+}
+
+async function refreshWalletList() {
+  const wallets = await api('wallets');
+  if (!wallets) return;
+  walletListData = wallets;
+  const listEl = $('#wallet-list');
+  const emptyEl = $('#wallet-list-empty');
+
+  if (wallets.length === 0) {
+    listEl.innerHTML = '';
+    emptyEl.style.display = 'block';
+    return;
+  }
+  emptyEl.style.display = 'none';
+
+  // Build entries from server response (balances included, no extra requests)
+  const entries = wallets.map(w => {
+    const info = w.info ? (typeof w.info === 'string' ? JSON.parse(w.info) : w.info) : {};
+    const kind = w.kind || 'node';
+    const subkind = w.subkind || '';
+    // For OYO wallets, prefer the actual derivation tag (info.seed_type =
+    // oyo_v1 / oyo_mweb_v1 / oyo_ext_v1 / mweb_v0) over the generic
+    // "External". OYO badge separately conveys "keys live in oyo-web".
+    const type = kind === 'oyo'
+      ? (subkind === 'watch' ? 'Watch' : (info.seed_type || (subkind === 'mweb' ? 'MWEB' : 'External')))
+      : (info.hdseedid ? 'HD' : info.private_keys_enabled === false ? 'Watch' : 'Non-HD');
+    let balHtml = '';
+    let sortKey = w.loaded ? 0 : -1;
+
+    if (w.loaded && w.balances) {
+      const bal = typeof w.balances === 'string' ? JSON.parse(w.balances) : w.balances;
+      const mine = bal.mine || {};
+      const t = mine.trusted || 0;
+      const netPending = mine.net_pending || 0;
+      const im = mine.immature || 0;
+      sortKey = t + netPending + im;
+      const extras = [];
+      if (im > 0) extras.push(`<span style="color:var(--dim2);">+${fmtLTC(im)} (immature)</span>`);
+      if (netPending > 0.000000005) extras.push(`<span style="color:var(--green);">+${fmtLTC(netPending)} (pending)</span>`);
+      if (netPending < -0.000000005) extras.push(`<span style="color:var(--red);">${fmtLTC(netPending)} (pending)</span>`);
+      balHtml = (extras.length ? `<span class="wallet-bal-extra">${extras.join(' ')} </span>` : '') +
+        `<span class="wallet-bal-main">${fmtLTC(t)} LTC</span>`;
+    }
+
+    return { name: w.name, loaded: w.loaded, kind, subkind, desync: !!w.desync, type, balHtml, sortKey };
+  });
+
+  // Sort: loaded by balance desc, then unloaded at bottom
+  entries.sort((a, b) => {
+    if (a.loaded && !b.loaded) return -1;
+    if (!a.loaded && b.loaded) return 1;
+    return b.sortKey - a.sortKey;
+  });
+
+  listEl.innerHTML = entries.map(e => {
+    const kindBadge = e.kind === 'oyo'
+      ? (e.subkind === 'mweb'
+          ? `<span class="wallet-badge wallet-badge-oyo" title="MWEB stealth-address wallet — keys live in oyo-web, RewindOutput against MWEB extension">MWEB</span>`
+          : `<span class="wallet-badge wallet-badge-oyo" title="Stored in oyo-web (liboyoltc), no .dat on the node">OYO</span>`)
+      : `<span class="wallet-badge wallet-badge-node" title="Loaded from node wallet.dat">NODE</span>`;
+    const desyncBadge = e.desync
+      ? `<span class="wallet-badge wallet-badge-desync" title="One or more addresses are out of sync — run sync">DESYNC</span>`
+      : '';
+    if (e.loaded) {
+      // Sync button only on OYO wallets — node wallets use their own
+      // scantxoutset path; the oyo-web Sync action targets liboyoltc's
+      // chain.Sync + per-wallet rescan flow specifically.
+      const syncBtn = e.kind === 'oyo'
+        ? `<button class="btn btn-sm" style="background:var(--border);color:var(--dim);font-size:11px;" onclick="event.stopPropagation();startRescan('${e.name}',this)" title="Sync wallet against the chain">Sync</button>`
+        : '';
+      return `<div class="wallet-row" onclick="navigate('wallet/${encodeURIComponent(e.name)}')">
+        <div><span class="wallet-name">${e.name}</span><span class="wallet-type">${e.type}</span>${kindBadge}${desyncBadge}</div>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <div class="wallet-bal">${e.balHtml}</div>
+          ${syncBtn}
+          <button class="btn btn-sm" style="background:var(--border);color:var(--dim);font-size:11px;" onclick="event.stopPropagation();unloadWallet('${e.name}')">Unload</button>
+        </div>
+      </div>`;
+    } else {
+      // OYO wallets have no on-disk .dat — Export is N/A. Delete drops
+      // the seed material from RAM permanently (only path to lose it
+      // other than process restart). Load reopens the liboyoltc handle
+      // from the seed kept in RAM since Create.
+      const exportBtn = e.kind === 'oyo' ? '' :
+        `<button class="btn btn-sm" style="font-size:11px;background:var(--border);color:var(--text);" onclick="event.stopPropagation();exportWallet('${e.name}')">Export</button>`;
+      const deleteFn = e.kind === 'oyo' ? `deleteOyoWallet('${e.name}')` : `deleteWalletFromDisk('${e.name}')`;
+      return `<div class="wallet-row" style="opacity:0.6;cursor:default;">
+        <div><span style="color:var(--dim);">${e.name}</span><span class="wallet-type">${e.type}</span>${kindBadge}<span class="wallet-badge" style="background:var(--border);color:var(--dim);" title="Wallet is unloaded — Load to resume sync">UNLOADED</span></div>
+        <div style="display:flex;gap:8px;">
+          <button class="btn btn-sm" style="font-size:11px;background:var(--border);color:var(--red);" onclick="event.stopPropagation();${deleteFn}">Delete</button>
+          ${exportBtn}
+          <button class="btn btn-sm" style="font-size:11px;" onclick="event.stopPropagation();loadWallet('${e.name}')">Load</button>
+        </div>
+      </div>`;
+    }
+  }).join('');
+}
+
+async function startRescan(name, btn) {
+  const origText = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Starting...';
+  const res = await api('wallet/rescan?name=' + encodeURIComponent(name) + '&action=start', { method: 'POST' });
+  if (!res) { btn.disabled = false; btn.textContent = origText; return; }
+  // Poll progress
+  const start = Date.now();
+  while (true) {
+    await new Promise(r => setTimeout(r, 1000));
+    const st = await api('wallet/rescan?name=' + encodeURIComponent(name));
+    if (!st || !st.scanning) break;
+    const elapsed = Math.floor((Date.now() - start) / 1000);
+    const progress = st.progress?.progress;
+    btn.textContent = progress !== undefined ? `${(progress * 100).toFixed(0)}% (${elapsed}s)` : `${elapsed}s`;
+  }
+  btn.disabled = false;
+  btn.textContent = origText;
+  notify('Sync complete: ' + name);
+  refreshWalletList();
+}
+
+function deleteWalletFromDisk(name) {
+  showModal('Delete Wallet', `
+    <div style="margin-bottom:16px;color:var(--text);">Permanently delete <strong>${name}</strong> from disk?</div>
+    <div style="margin-bottom:16px;color:var(--red);font-size:12px;">This cannot be undone. Make sure you have a backup.</div>
+    <div style="display:flex;gap:8px;">
+      <button class="btn danger" onclick="doDeleteWallet('${name}')">Delete</button>
+      <button class="btn btn-sm" style="background:var(--border);color:var(--text);" onclick="hideModal()">Cancel</button>
+    </div>
+  `);
+}
+// OYO wallets have no on-disk .dat — the seed lives only in RAM. Delete
+// drops it permanently; the user must have backed up the seed beforehand
+// (we surfaced it once at create time and never persist it). Confirmation
+// copy makes that explicit since there's no recovery path.
+function deleteOyoWallet(name) {
+  showModal('Delete Wallet', `
+    <div style="margin-bottom:16px;color:var(--text);">Permanently delete <strong>${name}</strong>?</div>
+    <div style="margin-bottom:16px;color:var(--red);font-size:12px;">The seed will be removed from memory and cannot be recovered without your written-down backup. This cannot be undone.</div>
+    <div style="display:flex;gap:8px;">
+      <button class="btn danger" onclick="doDeleteWallet('${name}')">Delete</button>
+      <button class="btn btn-sm" style="background:var(--border);color:var(--text);" onclick="hideModal()">Cancel</button>
+    </div>
+  `);
+}
+async function doDeleteWallet(name) {
+  hideModal();
+  const data = await api('wallet/delete?name=' + encodeURIComponent(name), { method: 'POST' });
+  if (data) { notify('Wallet deleted: ' + name); refreshWalletList(); }
+}
+
+async function loadWallet(name) {
+  const data = await api('wallet/load?name=' + encodeURIComponent(name), { method: 'POST' });
+  if (data) { notify('Wallet loaded: ' + name); refreshWalletList(); }
+}
+
+async function unloadWallet(name) {
+  const data = await api('wallet/unload?name=' + encodeURIComponent(name), { method: 'POST' });
+  if (data) { notify('Wallet unloaded: ' + name); refreshWalletList(); }
+}
+
+// ============================================================
+// Wallet Detail
+// ============================================================
+async function openWalletDetail(name) {
+  currentWallet = name;
+  currentWalletKind = '';
+  $('#wallet-list-view').style.display = 'none';
+  $('#wallet-detail-view').style.display = '';
+  $('#wallet-detail-name').textContent = name;
+  // Reset the send form synchronously on entry — BEFORE any await — so a
+  // user (or test) interacting during the wallet-list fetch below can't have
+  // a selection wiped by a late reset. loadFeePresets is async but only
+  // annotates / binds rates against the current selection, so it's safe here.
+  clearManualInputs();
+  resetFeeSelection();
+  resetChangeAddress();
+  loadFeePresets();
+  // Set type from cached wallet list data. After Create, the cache may
+  // not yet contain the new entry — fall through to a fetch in that case
+  // so the address-bar mode picks the right buttons even on first open.
+  let w = walletListData.find(w => w.name === name);
+  if (!w) {
+    await refreshWalletList();
+    w = walletListData.find(w => w.name === name);
+  }
+  const typeEl = $('#wallet-detail-type');
+  if (w && w.info) {
+    const info = typeof w.info === 'string' ? JSON.parse(w.info) : w.info;
+    const kind = w.kind || 'node';
+    const subkind = w.subkind || '';
+    const type = kind === 'oyo'
+      ? (subkind === 'watch' ? 'Watch' : (info.seed_type || (subkind === 'mweb' ? 'MWEB' : 'External')))
+      : (info.hdseedid ? 'HD' : info.private_keys_enabled === false ? 'Watch' : 'Non-HD');
+    const kindBadge = kind === 'oyo'
+      ? (subkind === 'mweb'
+          ? `<span class="wallet-badge wallet-badge-oyo" title="MWEB stealth wallet">MWEB</span>`
+          : `<span class="wallet-badge wallet-badge-oyo" title="Stored in oyo-web (liboyoltc)">OYO</span>`)
+      : `<span class="wallet-badge wallet-badge-node" title="Loaded from node wallet.dat">NODE</span>`;
+    const desyncBadge = w.desync
+      ? `<span class="wallet-badge wallet-badge-desync" title="One or more addresses are out of sync — run rescan">DESYNC</span>`
+      : '';
+    typeEl.innerHTML = `${type}${kindBadge}${desyncBadge}`;
+    setNewAddressBarMode(kind === 'oyo' ? subkind || 'regular' : 'node');
+    currentWalletKind = kind;
+  } else {
+    typeEl.textContent = '';
+    setNewAddressBarMode('node');
+    currentWalletKind = 'node';
+  }
+  // Multi-recipient (+ Add recipient) is OYO-only — node-wallet
+  // oyo-send takes a single recipient by design. Hide the link
+  // for node wallets so the user can't queue a tx the backend
+  // would reject with 400.
+  const isOyo = currentWalletKind === 'oyo';
+  const addRow = $('#send-add-recipient-row');
+  if (addRow) addRow.style.display = isOyo ? '' : 'none';
+  // Manual coin control is OYO-only and resets per wallet open.
+  const cc = $('#send-coincontrol');
+  if (cc) cc.style.display = isOyo ? '' : 'none';
+  // Custom change address is also OYO-only (canonical change override).
+  const cr = $('#send-change-row');
+  if (cr) cr.style.display = isOyo ? '' : 'none';
+  // Secrets export: OYO wallets that hold keys (not watch-only).
+  const wEntry = walletListData.find(x => x.name === name);
+  const isWatch = !!(wEntry && wEntry.subkind === 'watch');
+  const sl = $('#wallet-secrets-link');
+  if (sl) sl.style.display = (isOyo && !isWatch) ? '' : 'none';
+  refreshWalletData();
+}
+
+// Show newaddress controls relevant to the active wallet kind. Node wallets
+// have type buttons (default/legacy/bech32/mweb). OYO regular wallets
+// expose only "+ New P2WPKH Address". OYO MWEB-only expose only
+// "+ New MWEB Address". OYO universal have both sides — show both.
+// Shadow (watch) wallets have no allocator (addresses are imported,
+// not derived).
+function setNewAddressBarMode(mode) {
+  const showNode      = mode === 'node';
+  const showMweb      = mode === 'mweb';
+  const showRegular   = mode === 'regular';
+  const showUniversal = mode === 'universal';
+  document.querySelectorAll('.wallet-newaddr-node').forEach(b      => b.style.display = showNode      ? '' : 'none');
+  document.querySelectorAll('.wallet-newaddr-mweb').forEach(b      => b.style.display = showMweb      ? '' : 'none');
+  document.querySelectorAll('.wallet-newaddr-regular').forEach(b   => b.style.display = showRegular   ? '' : 'none');
+  document.querySelectorAll('.wallet-newaddr-universal').forEach(b => b.style.display = showUniversal ? '' : 'none');
+}
+
+async function refreshWalletData() {
+  if (!currentWallet) return;
+  // Addresses (includes balances + mempool pending)
+  const addrs = await api('wallet/addresses?name=' + encodeURIComponent(currentWallet));
+  if (addrs) {
+    renderAddresses(addrs);
+    // Balance bar: confirmed from getbalances, net pending from address-level mempool data
+    if (addrs.balances) {
+      const bal = typeof addrs.balances === 'string' ? JSON.parse(addrs.balances) : addrs.balances;
+      const mine = bal.mine || {};
+      const trusted = mine.trusted || 0;
+      const immature = mine.immature || 0;
+      const netPending = addrs.net_pending || 0;
+      const extras = [];
+      if (immature > 0) extras.push(`<span style="color:var(--dim2);">+${fmtLTC(immature)} (immature)</span>`);
+      if (netPending > 0.000000005) extras.push(`<span style="color:var(--green);">+${fmtLTC(netPending)} (pending)</span>`);
+      if (netPending < -0.000000005) extras.push(`<span style="color:var(--red);">${fmtLTC(netPending)} (pending)</span>`);
+      let html = (extras.length ? `<span style="font-size:12px;">${extras.join(' ')} </span>` : '') +
+        `<span style="font-weight:600;">${fmtLTC(trusted)} LTC</span>`;
+      $('#wallet-balance-bar').innerHTML = html;
+    }
+  }
+  // History
+  if (!currentWallet) return;
+  const txs = await api('wallet/history?name=' + encodeURIComponent(currentWallet) + '&count=50');
+  if (txs) renderHistory(txs);
+}
+
+function renderAddresses(data) {
+  const addrsEl = $('#wallet-addresses');
+  const emptyEl = $('#wallet-empty-addrs');
+  const toggleEl = $('#wallet-empty-toggle');
+
+  const addrEntries = Array.isArray(data.addresses) ? data.addresses : [];
+  let allAddrs = addrEntries.map(e => {
+    const confirmed = e.confirmed || 0;
+    const immature  = e.immature  || 0;
+    // Per-address `confirmed` from liboyoltc includes the immature peg-out
+    // portion so total invariants hold; here we show "spendable" so users
+    // don't try to send funds the node will reject as premature peg-outs.
+    // `index` is exposed by liboyoltc for every OYO wallet address (both
+    // p2wpkh bindings and MWEB stealth slots); node wallets don't carry
+    // an index in their getaddressesbylabel/listreceivedbyaddress output
+    // and end up as `undefined` here — the renderer skips the [idx]
+    // prefix in that case.
+    return {
+      addr: e.address,
+      kind: e.kind,
+      index: (typeof e.index === 'number') ? e.index : null,
+      balance: confirmed - immature,
+      pendingIn: e.pending_in || 0,
+      pendingOut: e.pending_out || 0,
+      immature,
+    };
+  });
+  allAddrs.sort((a, b) => {
+    // 1st: spendable balance desc
+    const balDiff = b.balance - a.balance;
+    if (Math.abs(balDiff) > 0.000000005) return balDiff;
+    // 2nd: net pending (in - out) desc
+    const aPending = a.pendingIn - a.pendingOut + a.immature;
+    const bPending = b.pendingIn - b.pendingOut + b.immature;
+    const pendDiff = bPending - aPending;
+    if (Math.abs(pendDiff) > 0.000000005) return pendDiff;
+    // 3rd: derivation index desc — newest allocations float to the top
+    // among empty / equal-balance siblings, so the next-likely-to-use
+    // address is what the user sees first. Node wallets don't carry
+    // indices in their address payload (e.index === null) and fall
+    // through to the lexicographic tiebreak.
+    if (a.index !== null && b.index !== null && a.index !== b.index) {
+      return b.index - a.index;
+    }
+    // 4th: lexicographic on the address string itself
+    return a.addr < b.addr ? -1 : a.addr > b.addr ? 1 : 0;
+  });
+
+  const hasActivity = a => a.balance > 0 || a.pendingIn > 0 || a.pendingOut > 0 || a.immature > 0;
+  const withBalance = allAddrs.filter(hasActivity);
+  const withoutBalance = allAddrs.filter(a => !hasActivity(a));
+
+  // Compact `[idx]` prefix shown next to every OYO-wallet address. Node
+  // wallets don't carry derivation indices in our addresses payload, so
+  // this collapses to empty for them. Width-controlled so the prefix
+  // doesn't squish the address column when indices are 1- or 2-digit.
+  const idxBadge = a => a.index === null
+    ? ''
+    : `<span class="addr-idx" title="derivation index ${a.index}">[${a.index}]</span>`;
+
+  addrsEl.innerHTML = withBalance.length === 0
+    ? '<div style="padding:12px;color:var(--dim);">No addresses with balance.</div>'
+    : withBalance.map(a => {
+      let balStr = '';
+      if (a.pendingIn > 0) balStr += `<span style="color:var(--green);font-size:11px;">+${fmtLTC(a.pendingIn)} (pending) </span>`;
+      if (a.pendingOut > 0) balStr += `<span style="color:var(--red);font-size:11px;">-${fmtLTC(a.pendingOut)} (pending) </span>`;
+      if (a.immature > 0) balStr += `<span style="color:var(--dim2);font-size:11px;">+${fmtLTC(a.immature)} (immature) </span>`;
+      balStr += `${fmtLTC(a.balance)} LTC`;
+      return `<div class="addr-row">${idxBadge(a)}<span class="addr copyable" data-copy="${a.addr}" title="Click to copy">${a.addr}</span><span class="link" onclick="navigate('address/' + encodeURIComponent('${a.addr}'))" title="Open in explorer" style="margin-left:8px;">↗</span><span class="bal">${balStr}</span></div>`;
+    }).join('');
+
+  if (withoutBalance.length > 0) {
+    toggleEl.innerHTML = `<span class="spoiler-toggle" onclick="toggleEmptyAddrs()">+ ${withoutBalance.length} empty address${withoutBalance.length > 1 ? 'es' : ''}</span>`;
+    emptyEl.innerHTML = withoutBalance.map(a =>
+      `<div class="addr-row" style="opacity:0.5;cursor:default;">${idxBadge(a)}<span class="addr copyable" data-copy="${a.addr}" style="color:var(--dim);">${a.addr}</span><span class="bal">0</span></div>`
+    ).join('');
+  } else {
+    toggleEl.innerHTML = '';
+    emptyEl.innerHTML = '';
+    emptyEl.style.display = 'none';
+  }
+}
+
+function renderHistory(txs) {
+  const arr = Array.isArray(txs) ? txs : [];
+  const empty = $('#wallet-history-empty');
+  if (arr.length === 0) {
+    $('#wallet-history-table').innerHTML = '';
+    if (empty) empty.style.display = 'block';
+    return;
+  }
+  if (empty) empty.style.display = 'none';
+  $('#wallet-history-table').innerHTML = arr.slice().reverse().map(tx => {
+    const pending = tx.confirmations === 0;
+    const rowStyle = pending ? ' style="opacity:0.4;"' : '';
+    return `<tr${rowStyle}>
+      <td><span class="hash-full link" onclick="navigate('tx/${tx.txid}')">${tx.txid}</span></td>
+      <td>${tx.category}${pending ? ' (pending)' : ''}</td>
+      <td style="color:${tx.amount >= 0 ? 'var(--green)' : 'var(--red)'}">${fmtLTC(tx.amount)} LTC</td>
+      <td>${tx.confirmations}</td>
+      <td style="font-size:11px;color:var(--dim);">${tx.time ? formatTime(tx.time) : ''}</td>
+    </tr>`;
+  }).join('');
+}
+
+function toggleEmptyAddrs() {
+  const el = $('#wallet-empty-addrs');
+  const toggle = $('#wallet-empty-toggle .spoiler-toggle');
+  if (el.style.display === 'none') { el.style.display = ''; toggle.textContent = toggle.textContent.replace('+', '-'); }
+  else { el.style.display = 'none'; toggle.textContent = toggle.textContent.replace('-', '+'); }
+}
+
+// ============================================================
+// Wallet Actions
+// ============================================================
+async function newAddressType(addrType) {
+  if (!currentWallet) return;
+  const url = `wallet/newaddress?name=${encodeURIComponent(currentWallet)}` + (addrType ? `&type=${addrType}` : '');
+  const data = await api(url, { method: 'POST' });
+  if (data) { notify('New address: ' + (data.address || JSON.stringify(data))); refreshWalletData(); }
+}
+
+// ============================================================
+// Send
+// ============================================================
+// Tracks the currently open wallet's kind. Kept around so future
+// kind-specific UI hooks have a single place to read from.
+let currentWalletKind = '';
+
+// Max-button state: when armed (user clicked Max) the next sendCoins
+// posts send_all=true with the captured fee_rate_sat_per_vb, so the
+// node drains the balance using the same fee rate the preview was
+// computed against. Cleared on any manual amount edit / wallet reset.
+let _maxModeActive = false;
+let _maxModeFeeRate = 0;
+
+// Append a fresh empty recipient row (multi-recipient mode). Shows
+// remove buttons on every row once N>1, hides Max + send_all (drain
+// semantics are ambiguous when split across N recipients).
+function addRecipient() {
+  const list = $('#send-recipients');
+  if (!list) return;
+  const row = document.createElement('div');
+  row.className = 'send-recipient-row';
+  row.innerHTML = `
+    <div class="form-group">
+      <label style="display:flex;justify-content:space-between;align-items:center;">
+        <span>To address</span>
+        <button class="recipient-remove" onclick="removeRecipient(this)" title="Remove this recipient" style="background:none;border:none;color:var(--red);cursor:pointer;font-size:14px;padding:0 4px;">×</button>
+      </label>
+      <input type="text" class="send-to" placeholder="Recipient address">
+    </div>
+    <div class="form-group">
+      <label>Amount (LTC) <button class="btn btn-sm recipient-max" style="font-size:11px;padding:2px 8px;display:none;" onclick="toggleRowMax(this)" title="Send the remaining balance (after fee) to this recipient">Max</button></label>
+      <input type="number" class="send-amount" placeholder="0.00" step="0.00000001">
+    </div>`;
+  list.appendChild(row);
+  refreshRecipientControls();
+}
+
+// Remove the row that contains the clicked × button. Re-runs the
+// row-count fixup so we go back to the single-recipient UX (Max +
+// remove buttons hidden) when only one row remains.
+function removeRecipient(btn) {
+  const row = btn.closest('.send-recipient-row');
+  if (!row) return;
+  const list = $('#send-recipients');
+  if (!list || list.children.length <= 1) return;   // never remove the anchor row
+  row.remove();
+  refreshRecipientControls();
+}
+
+// Toggle UI bits that depend on row count: remove (×) buttons appear
+// only when there are 2+ rows; Max button is hidden in multi-recipient
+// mode (send_all is rejected by the backend when outputs[] is set).
+function refreshRecipientControls() {
+  const rows = document.querySelectorAll('.send-recipient-row');
+  const multi = rows.length > 1;
+  rows.forEach(row => {
+    const rm = row.querySelector('.recipient-remove');
+    if (rm) rm.style.display = multi ? '' : 'none';
+    // Per-row "Max" (drain) toggle is only meaningful with 2+ recipients.
+    const mx = row.querySelector('.recipient-max');
+    if (mx) mx.style.display = multi ? '' : 'none';
+  });
+  // Returning to a single row clears any drain selection + re-enables amounts.
+  if (!multi) rows.forEach(clearRowDrain);
+  const maxBtn = $('#send-max-btn');
+  if (maxBtn) maxBtn.style.display = (multi || _manualInputs.length > 0) ? 'none' : '';
+  if (multi && _maxModeActive) {
+    // Adding a recipient while in Max mode invalidates Max.
+    _maxModeActive = false;
+    _maxModeFeeRate = 0;
+    const hint = $('#send-fee-hint');
+    if (hint) hint.style.display = 'none';
+  }
+}
+
+// Read the recipient form rows. Filters out blank rows (so users can
+// add a row, change their mind, and submit without first removing it).
+function readRecipientRows() {
+  const out = [];
+  document.querySelectorAll('.send-recipient-row').forEach(row => {
+    const to = row.querySelector('.send-to')?.value.trim() || '';
+    const drain = row.dataset.drain === '1';
+    const amount = row.querySelector('.send-amount')?.value || '';
+    if (!to && !amount && !drain) return;
+    out.push({ to, amount, drain });
+  });
+  return out;
+}
+
+// Per-recipient "Max" (P2.4): mark exactly one row as the drain output
+// (it absorbs the remainder after the fixed outputs + fee). Toggling a
+// row clears any other row's drain. The drain row's amount input is
+// disabled — its value is computed by the engine.
+function clearRowDrain(row) {
+  row.dataset.drain = '';
+  const amt = row.querySelector('.send-amount');
+  if (amt) { amt.disabled = false; amt.placeholder = '0.00'; }
+  const mx = row.querySelector('.recipient-max');
+  if (mx) mx.classList.remove('active');
+}
+function toggleRowMax(btn) {
+  const row = btn.closest('.send-recipient-row');
+  if (!row) return;
+  const wasDrain = row.dataset.drain === '1';
+  document.querySelectorAll('.send-recipient-row').forEach(clearRowDrain);
+  if (!wasDrain) {
+    row.dataset.drain = '1';
+    const amt = row.querySelector('.send-amount');
+    if (amt) { amt.value = ''; amt.disabled = true; amt.placeholder = 'all remaining (after fee)'; }
+    btn.classList.add('active');
+  }
+}
+
+// Custom change address (P2.3) advanced toggle.
+function toggleCustomChange() {
+  const panel = $('#send-change-panel');
+  const link = $('#send-change-link');
+  if (!panel || !link) return;
+  const shown = panel.style.display !== 'none';
+  panel.style.display = shown ? 'none' : '';
+  link.textContent = shown ? '⊕ Custom change address' : '⊖ Custom change address';
+}
+function resetChangeAddress() {
+  const inp = $('#send-change-address');
+  if (inp) inp.value = '';
+  const panel = $('#send-change-panel');
+  if (panel) panel.style.display = 'none';
+  const link = $('#send-change-link');
+  if (link) link.textContent = '⊕ Custom change address';
+}
+
+// ── Manual coin control (input picker) ──────────────────────────────
+// Selected UTXOs are posted as cfg.inputs[] alongside outputs[]; an
+// empty selection means automatic coin selection. Keyed by txid:vout
+// (canonical) or mw:<commitment> (MWEB). OYO wallets only — node
+// wallets use their own coin control.
+let _manualInputs = [];   // [{key, txid, vout, commitment, amount_sat, address, kind}]
+let _utxoCache = [];      // last /api/wallet/utxos fetch, for the modal
+
+function _utxoKey(u) { return u.commitment ? 'mw:' + u.commitment : (u.txid + ':' + u.vout); }
+
+async function openInputPicker() {
+  if (!currentWallet) { toast('No wallet selected', true); return; }
+  const data = await api('wallet/utxos?name=' + encodeURIComponent(currentWallet));
+  if (!data) return;
+  // Only confirmed, not-already-spending UTXOs are eligible inputs.
+  _utxoCache = (Array.isArray(data) ? data : []).filter(u => u.confirmed !== false && !u.spent_pending);
+  renderInputPicker();
+}
+
+function renderInputPicker() {
+  const selected = new Set(_manualInputs.map(i => i.key));
+  const rows = _utxoCache.length === 0
+    ? '<div style="padding:20px;color:var(--dim);text-align:center;">No confirmed UTXOs to select.</div>'
+    : _utxoCache.map(u => {
+        const key = _utxoKey(u);
+        const sel = selected.has(key);
+        const kind = (u.kind || 'p2wpkh').toLowerCase();
+        const ref = u.commitment ? ('commitment ' + shortAddr(u.commitment)) : (shortAddr(u.txid) + ':' + u.vout);
+        const addr = u.address ? shortAddr(u.address) : (u.commitment ? 'MWEB stealth output' : '');
+        return `<div class="utxo-pick${sel ? ' sel' : ''}" onclick="toggleInputPick('${key}')">
+          <span class="chk">${sel ? '✓' : ''}</span>
+          <div style="flex:1;min-width:0;">
+            <div style="display:flex;justify-content:space-between;gap:8px;">
+              <span style="color:var(--text);">${addr}</span>
+              <span style="white-space:nowrap;font-weight:500;">${fmtLTC((u.amount_sat || 0) / 1e8)} LTC</span>
+            </div>
+            <div style="color:var(--dim);font-size:11px;margin-top:2px;">${ref} <span class="utxo-kind ${kind}">${kind}</span></div>
+          </div>
+        </div>`;
+      }).join('');
+  const selCount = _manualInputs.length;
+  const selTotal = _manualInputs.reduce((a, i) => a + (i.amount_sat || 0), 0);
+  showModal('Select inputs', `
+    <div style="font-size:12px;color:var(--dim);margin-bottom:12px;">Pick which UTXOs fund this transaction. Leave empty for automatic coin selection.</div>
+    <div style="max-height:50vh;overflow-y:auto;margin-bottom:12px;">${rows}</div>
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;border-top:1px solid var(--border);padding-top:12px;">
+      <span id="picker-foot" style="font-size:12px;color:var(--text);">${selCount} selected · ${fmtLTC(selTotal / 1e8)} LTC</span>
+      <div style="display:flex;gap:8px;">
+        <button class="btn btn-sm" style="background:var(--border);color:var(--text);" onclick="_manualInputs=[];renderInputPicker();">Clear</button>
+        <button class="btn btn-sm" onclick="hideModal();updateManualInputsSummary();">Done</button>
+      </div>
+    </div>`);
+}
+
+function toggleInputPick(key) {
+  const idx = _manualInputs.findIndex(i => i.key === key);
+  if (idx >= 0) {
+    _manualInputs.splice(idx, 1);
+  } else {
+    const u = _utxoCache.find(x => _utxoKey(x) === key);
+    if (u) _manualInputs.push({
+      key, txid: u.txid, vout: u.vout, commitment: u.commitment,
+      amount_sat: u.amount_sat, address: u.address, kind: u.kind,
+    });
+  }
+  renderInputPicker();   // re-render in place to reflect toggle + footer
+}
+
+function clearManualInputs() {
+  _manualInputs = [];
+  updateManualInputsSummary();
+}
+
+// Reflect the current selection in the send form: a summary chip when
+// inputs are picked, the plain link otherwise. Manual inputs make the
+// Max button meaningless (drain semantics are ambiguous over a fixed
+// subset), so clear/hide it while a selection is active.
+function updateManualInputsSummary() {
+  const sum  = $('#send-coincontrol-summary');
+  const link = $('#send-pick-link');
+  const txt  = $('#send-coincontrol-text');
+  if (!sum || !link || !txt) return;
+  const maxBtn = $('#send-max-btn');
+  if (_manualInputs.length === 0) {
+    sum.style.display = 'none';
+    link.style.display = '';
+    const multi = document.querySelectorAll('.send-recipient-row').length > 1;
+    if (maxBtn) maxBtn.style.display = multi ? 'none' : '';
+    return;
+  }
+  if (_maxModeActive) {
+    _maxModeActive = false;
+    _maxModeFeeRate = 0;
+    const hint = $('#send-fee-hint');
+    if (hint) hint.style.display = 'none';
+  }
+  if (maxBtn) maxBtn.style.display = 'none';
+  const total = _manualInputs.reduce((a, i) => a + (i.amount_sat || 0), 0);
+  txt.textContent = `${_manualInputs.length} input${_manualInputs.length > 1 ? 's' : ''} selected · ${fmtLTC(total / 1e8)} LTC`;
+  sum.style.display = 'flex';
+  link.style.display = 'none';
+}
+
+function readManualInputs() {
+  return _manualInputs.map(i => i.commitment ? { commitment: i.commitment } : { txid: i.txid, vout: i.vout });
+}
+
+// ── Fee-rate selection ──────────────────────────────────────────────
+// _feeRate = 0 → automatic (the engine estimates). A preset chip or the
+// custom box sets an explicit sat/vB that flows into estimate-send / send
+// via the fee_rate_sat_per_vb query param. Presets come from /api/fees
+// (estimatesmartfee conf targets 24/6/1 → low/normal/high; relay floor
+// on a node with no fee market, e.g. regtest).
+let _feeRate = 0;          // sat/vB; 0 = auto
+let _feePreset = 'auto';   // auto | low | normal | high | custom
+let _feePresets = null;    // {low, normal, high, floor}
+
+async function loadFeePresets() {
+  const d = await api('fees');
+  if (d && d.presets) _feePresets = { ...d.presets, floor: d.floor };
+  // If a preset chip was selected before the rates arrived, bind its rate
+  // now so the selection actually drives fee_rate (not a silent 0/auto).
+  if (_feePresets && (_feePreset === 'low' || _feePreset === 'normal' || _feePreset === 'high')) {
+    _feeRate = _feePresets[_feePreset] || 0;
+  }
+  renderFeeChips();
+}
+
+function renderFeeChips() {
+  document.querySelectorAll('.fee-preset').forEach(b => {
+    const name = b.dataset.fee;
+    b.classList.toggle('active', name === _feePreset);
+    if (_feePresets && (name === 'low' || name === 'normal' || name === 'high')) {
+      const cap = name.charAt(0).toUpperCase() + name.slice(1);
+      b.textContent = `${cap} · ${_feePresets[name]}`;
+    }
+  });
+  const note = $('#send-fee-note');
+  if (note) note.textContent = _feeRate > 0 ? `${_feeRate} sat/vB` : 'Automatic (node-estimated) fee.';
+}
+
+function setFeePreset(name) {
+  _feePreset = name;
+  const custom = $('#send-fee-custom');
+  if (custom) custom.value = '';
+  // Auto → 0; a named preset → its rate (0 if presets haven't loaded).
+  _feeRate = (name !== 'auto' && _feePresets && _feePresets[name]) ? _feePresets[name] : 0;
+  renderFeeChips();
+}
+
+function setCustomFee() {
+  const v = parseInt($('#send-fee-custom')?.value, 10);
+  if (v >= 1) { _feeRate = v; _feePreset = 'custom'; }
+  else { _feeRate = 0; _feePreset = 'auto'; }
+  renderFeeChips();
+}
+
+function resetFeeSelection() {
+  _feeRate = 0;
+  _feePreset = 'auto';
+  const custom = $('#send-fee-custom');
+  if (custom) custom.value = '';
+  renderFeeChips();
+}
+
+async function sendCoins() {
+  if (!currentWallet) return;
+  const rows = readRecipientRows();
+  if (rows.length === 0) { toast('At least one recipient required', true); return; }
+  for (const r of rows) {
+    if (!r.to) { toast('Address required for every recipient', true); return; }
+    // A drain ("Max") row has no amount — the engine computes it.
+    if (!r.drain && !_maxModeActive && !r.amount) { toast('Amount required for every recipient', true); return; }
+  }
+  const manualInputs = readManualInputs();
+  const changeAddress = $('#send-change-address')?.value.trim() || '';
+  const hasDrain = rows.some(r => r.drain);
+
+  // Pre-broadcast flow: estimate-send dry-runs the build+sign on the
+  // server, returns the structured tx breakdown + a confirm_token (=
+  // signed tx_id) + the node's testmempoolaccept verdict. Frontend
+  // renders the modal; on Confirm we POST /api/wallet/send?confirm_token=
+  // and the server broadcasts the exact bytes the user just approved.
+  //
+  // Body path (POST outputs[]/inputs[]/change_address) is required for
+  // multi-recipient, manual coin control, a drain ("max") output, or a
+  // custom change address. Single-recipient + automatic selection keeps
+  // the URL-param path so Max / send_all still work.
+  const useBody = rows.length > 1 || manualInputs.length > 0 || hasDrain || !!changeAddress;
+
+  // outputs[] shape: the drain row carries max:true (engine computes the
+  // amount); fixed rows carry amount_sat.
+  const buildOutputs = () => rows.map(r => r.drain
+    ? { address: r.to, max: true }
+    : { address: r.to, amount_sat: Math.round(parseFloat(r.amount) * 1e8) });
+
+  if (currentWalletIsNode() && !hasOyoFeature('oyo-send')) {
+    if (useBody || _maxModeActive || _feeRate > 0) {
+      toast('This node has no oyo-send; node wallets support only simple direct sends here', true);
+      return;
+    }
+    const to = rows[0].to;
+    const amount = rows[0].amount;
+    const data = await api(`wallet/send?name=${encodeURIComponent(currentWallet)}&to=${encodeURIComponent(to)}&amount=${encodeURIComponent(amount)}`, { method: 'POST' });
+    if (data) {
+      notify('Transaction broadcast: ' + (data.txid || ''));
+      resetSendForm();
+      refreshWalletData();
+    }
+    return;
+  }
+
+  let est;
+  if (!useBody) {
+    const to = rows[0].to;
+    const amount = rows[0].amount;
+    let url = `wallet/estimate-send?name=${encodeURIComponent(currentWallet)}&to=${encodeURIComponent(to)}`;
+    if (_maxModeActive) {
+      url += `&send_all=true`;
+      if (_maxModeFeeRate > 0) url += `&fee_rate_sat_per_vb=${_maxModeFeeRate}`;
+    } else {
+      url += `&amount=${amount}`;
+      if (_feeRate > 0) url += `&fee_rate_sat_per_vb=${_feeRate}`;
+    }
+    est = await api(url);
+  } else {
+    // Backend rejects mixed canonical + stealth and rejects peg-in
+    // (R→M) with N>1 outputs / drain / custom change; the modal surfaces
+    // those errors. fee_rate rides on the query string (the backend reads
+    // it from there even on the body path).
+    const reqBody = { outputs: buildOutputs() };
+    if (manualInputs.length > 0) reqBody.inputs = manualInputs;
+    if (changeAddress) reqBody.change_address = changeAddress;
+    let url = `wallet/estimate-send?name=${encodeURIComponent(currentWallet)}`;
+    if (_feeRate > 0) url += `&fee_rate_sat_per_vb=${_feeRate}`;
+    est = await api(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(reqBody),
+    });
+  }
+  if (!est) return;                            // api() already toasted
+  if (est.amount_sat == null) {
+    toast('estimate failed: malformed response', true);
+    return;
+  }
+  // Show summary header line: single → "to addr"; multi → "N recipients".
+  const headerTo = rows.length === 1
+    ? rows[0].to
+    : `${rows.length} recipients`;
+  const headerAmount = rows.length === 1
+    ? rows[0].amount
+    : '';
+  // Recipe object stashed for the queue branch — server side stores
+  // intent, NOT the signed bytes from estimate-send. So we hand it
+  // exactly the same fields the form would have driven through
+  // /api/wallet/send (manual inputs[], drain outputs, custom change — so
+  // the queue replays the same tx shape).
+  const recipe = !useBody
+    ? {
+        to: rows[0].to,
+        amount_sat: _maxModeActive ? 0 : Math.round(parseFloat(rows[0].amount) * 1e8),
+        send_all: _maxModeActive,
+        fee_rate_sat_per_vb: _maxModeActive ? (_maxModeFeeRate > 0 ? _maxModeFeeRate : 0) : _feeRate,
+      }
+    : {
+        outputs: buildOutputs(),
+        ...(manualInputs.length > 0 ? { inputs: manualInputs } : {}),
+        ...(changeAddress ? { change_address: changeAddress } : {}),
+        ...(_feeRate > 0 ? { fee_rate_sat_per_vb: _feeRate } : {}),
+      };
+  showConfirmSendModal(headerTo, headerAmount, est, recipe);
+}
+
+// Render the full pre-broadcast tx breakdown. Layout:
+//
+//   ┌── Summary ──────────────────────────────────────┐
+//   │ FROM / TO / PATH / AMOUNT / FEE                 │  ← always
+//   └─────────────────────────────────────────────────┘
+//   ┌── Reject banner ────────────────────────────────┐  ← if would_accept=false
+//   └─────────────────────────────────────────────────┘
+//   ┌── Action ───────────────────────────────────────┐
+//   │ ◉ Broadcast now                                  │
+//   │ ○ Add to queue (manual)                          │
+//   │ ○ Add to queue (auto at: [time]) +1h +6h +1d +1w│
+//   └─────────────────────────────────────────────────┘
+//   [Confirm] [Cancel]      [▸ show advanced]
+//   ┌── Advanced ─────────────────────────────────────┐  ← collapsed by default
+//   │ INPUTS                                           │
+//   │ OUTPUTS (incl. kernel rows)                      │
+//   │ Balance delta · TXID                             │
+//   └─────────────────────────────────────────────────┘
+function showConfirmSendModal(to, amount, est, recipe) {
+  const PATH_LABEL = {
+    regular:  'Plain spend (P2WPKH → P2WPKH)',
+    'peg-in': 'Peg-in (canonical → MWEB)',
+    'peg-out':'Peg-out (MWEB → canonical bech32)',
+    mweb:     'Pure MWEB (M → M)',
+  };
+  const path = est.path || 'regular';
+  const pathLabel = PATH_LABEL[path] || path;
+
+  const inputs  = Array.isArray(est.inputs)  ? est.inputs  : [];
+  const outputs = Array.isArray(est.outputs) ? est.outputs : [];
+  // Custom change: surface the change output's address in the summary,
+  // but only when the user chose it AND a change output actually exists
+  // (a drain / exact-amount send has none — don't show a phantom line).
+  const customChangeOut = (recipe && recipe.change_address)
+    ? outputs.find(o => o.label === 'change')
+    : null;
+  const totalIn  = inputs.reduce((a, i) => a + (i.amount_sat || 0), 0);
+  const totalOut = outputs.reduce((a, o) => a + (o.amount_sat || 0), 0);
+  const balDelta = est.balance_delta_sat || {};
+
+  const inputsHtml = inputs.length === 0
+    ? '<div style="color:var(--dim);font-size:12px;padding:6px 0;">(no canonical inputs — MWEB-only)</div>'
+    : inputs.map(inp => `
+        <div style="border-top:1px solid var(--border);padding:6px 0;font-size:11px;">
+          <div style="display:flex;justify-content:space-between;gap:8px;">
+            <span class="copyable" data-copy="${inp.address || ''}" style="color:var(--text);word-break:break-all;">${inp.address || '(unknown address)'}</span>
+            <span style="white-space:nowrap;">${fmtLTC((inp.amount_sat || 0) / 1e8)} LTC</span>
+          </div>
+          <div style="color:var(--dim);margin-top:2px;">
+            <span class="copyable" data-copy="${inp.txid || ''}:${inp.vout}">${inp.txid || ''}:${inp.vout}</span>
+            <span style="margin-left:8px;">[${inp.kind || '?'} · ${inp.status || 'unknown'}${inp.binding_index != null ? ' · idx=' + inp.binding_index : ''}]</span>
+          </div>
+        </div>`).join('');
+
+  const outputsHtml = outputs.length === 0
+    ? '<div style="color:var(--dim);font-size:12px;padding:6px 0;">(no canonical outputs — MWEB-only or HogEx-deferred)</div>'
+    : outputs.map(out => {
+        const labelColor = out.label === 'recipient' ? 'var(--accent)'
+                         : out.label === 'change'    ? 'var(--dim)'
+                         : 'var(--dim2)';
+        return `
+        <div style="border-top:1px solid var(--border);padding:6px 0;font-size:11px;">
+          <div style="display:flex;justify-content:space-between;gap:8px;">
+            <span class="copyable" data-copy="${out.address || ''}" style="color:var(--text);word-break:break-all;">${out.address || '(no address)'}</span>
+            <span style="white-space:nowrap;">${fmtLTC((out.amount_sat || 0) / 1e8)} LTC</span>
+          </div>
+          <div style="color:${labelColor};margin-top:2px;">
+            ${out.label || '?'}<span style="margin-left:6px;color:var(--dim);">[${out.kind || '?'}]</span>
+          </div>
+        </div>`;
+      }).join('');
+
+  const feeBlocks = [];
+  if (est.canonical_fee_sat != null) feeBlocks.push(`canonical: ${est.canonical_fee_sat} sat`);
+  if (est.mweb_fee_sat != null)      feeBlocks.push(`MWEB: ${est.mweb_fee_sat} sat`);
+  if (est.fee_sat != null && feeBlocks.length === 0) feeBlocks.push(`${est.fee_sat} sat`);
+  const feeRate = est.fee_rate_sat_per_vb || 0;
+  const feeLine = feeBlocks.join(' + ') + (feeRate ? ` (${feeRate} sat/vB)` : '');
+
+  const balanceLine = (balDelta.canonical_sat != null || balDelta.mweb_sat != null)
+    ? [
+        balDelta.canonical_sat ? `canonical ${balDelta.canonical_sat > 0 ? '+' : ''}${fmtLTC(balDelta.canonical_sat / 1e8)} LTC` : null,
+        balDelta.mweb_sat      ? `MWEB ${balDelta.mweb_sat > 0 ? '+' : ''}${fmtLTC(balDelta.mweb_sat / 1e8)} LTC`           : null,
+      ].filter(Boolean).join(' · ')
+    : '';
+
+  const wouldAccept = est.would_accept !== false;
+  const rejectBlock = !wouldAccept
+    ? `<div style="margin:12px 0;padding:10px;background:rgba(220,80,80,0.12);border-left:3px solid var(--red);font-size:12px;border-radius:4px;">
+         <div style="font-weight:600;color:var(--red);">Node rejected the signed tx</div>
+         <div style="margin-top:4px;color:var(--text);">${est.reject_reason || '(no reason given)'}</div>
+         <div style="margin-top:4px;color:var(--dim);">Confirm is disabled — adjust amount/fee and try again.</div>
+       </div>`
+    : '';
+
+  const confirmDisabled = !wouldAccept || !est.confirm_token;
+
+  // Multi-recipient: hide the single TO line (the OUTPUTS section
+  // in Advanced enumerates each recipient).
+  const recipientCount = outputs.filter(o => o.label === 'recipient').length;
+  const isMulti = recipientCount > 1;
+  const amountLabel = isMulti ? 'TOTAL TO RECIPIENTS' : 'AMOUNT TO RECIPIENT';
+  const toLine = isMulti
+    ? `${recipientCount} recipients (see Advanced)`
+    : `<span class="copyable" data-copy="${to}" style="word-break:break-all;">${to}</span>`;
+
+  // Two-column summary grid: label/value pairs on the left, big
+  // amount + fee on the right. Compact and scannable.
+  const summary = `
+    <div style="background:rgba(255,255,255,0.03);border:1px solid var(--border);border-radius:6px;padding:14px 18px;margin-bottom:14px;">
+      <div style="display:grid;grid-template-columns:80px 1fr;gap:6px 14px;font-size:13px;">
+        <div style="color:var(--dim);font-size:11px;text-transform:uppercase;letter-spacing:0.4px;">From</div>
+        <div>${escapeHTML(currentWallet)}</div>
+
+        <div style="color:var(--dim);font-size:11px;text-transform:uppercase;letter-spacing:0.4px;">To</div>
+        <div>${toLine}</div>
+
+        <div style="color:var(--dim);font-size:11px;text-transform:uppercase;letter-spacing:0.4px;">Path</div>
+        <div>${pathLabel}</div>
+
+        <div style="color:var(--dim);font-size:11px;text-transform:uppercase;letter-spacing:0.4px;">${amountLabel}</div>
+        <div style="font-size:18px;font-weight:600;">${fmtLTC((est.amount_sat || 0) / 1e8)} LTC</div>
+
+        <div style="color:var(--dim);font-size:11px;text-transform:uppercase;letter-spacing:0.4px;">Fee</div>
+        <div style="font-size:12px;color:var(--dim);">${feeLine}</div>
+        ${customChangeOut ? `
+        <div style="color:var(--dim);font-size:11px;text-transform:uppercase;letter-spacing:0.4px;">Change</div>
+        <div style="font-size:12px;"><span class="copyable" data-copy="${customChangeOut.address}" style="word-break:break-all;">${customChangeOut.address}</span> <span style="color:var(--orange);">custom</span></div>` : ''}
+      </div>
+    </div>`;
+
+  // Action block — radio + scheduled-time presets. Presets are quick
+  // chips: +1h, +6h, +1d, +1w (each picks queue-scheduled radio and
+  // jitters the offset by ±10% so identical clicks don't all fire
+  // at the same wallclock second).
+  const actionBlock = `
+    <div style="border:1px solid var(--border);border-radius:6px;padding:14px 18px;margin-bottom:14px;">
+      <div style="font-size:11px;color:var(--dim);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:10px;">Action</div>
+      <label style="display:block;margin-bottom:8px;font-size:13px;cursor:pointer;">
+        <input type="radio" name="send-action" value="now" checked onchange="updateSendActionUI()"> Broadcast now
+      </label>
+      <label style="display:block;margin-bottom:8px;font-size:13px;cursor:pointer;">
+        <input type="radio" name="send-action" value="queue-manual" onchange="updateSendActionUI()"> Add to queue · broadcast manually later
+      </label>
+      <label style="display:block;font-size:13px;cursor:pointer;">
+        <input type="radio" name="send-action" value="queue-scheduled" onchange="updateSendActionUI()"> Add to queue · auto-broadcast at
+        <input type="datetime-local" id="send-action-at" style="margin-left:6px;font-size:12px;padding:3px 6px;width:auto;background:var(--surface);border:1px solid var(--border);color:var(--text);border-radius:4px;" disabled>
+      </label>
+      <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap;padding-left:22px;" id="send-presets">
+        <button type="button" class="btn btn-sm preset-btn" onclick="setSchedulePreset('1h')">+1h</button>
+        <button type="button" class="btn btn-sm preset-btn" onclick="setSchedulePreset('6h')">+6h</button>
+        <button type="button" class="btn btn-sm preset-btn" onclick="setSchedulePreset('1d')">+1 day</button>
+        <button type="button" class="btn btn-sm preset-btn" onclick="setSchedulePreset('1w')">+1 week</button>
+      </div>
+      <div style="font-size:11px;color:var(--dim);margin-top:10px;font-style:italic;">
+        Fee and change recompute when the queue runs the task.
+      </div>
+    </div>`;
+
+  // Advanced section — toggled visible. Holds INPUTS, OUTPUTS,
+  // balance delta, TXID. Off by default to keep the modal scannable.
+  const advancedBlock = `
+    <div style="margin-top:8px;">
+      <span class="link" onclick="toggleConfirmAdvanced()" id="confirm-adv-toggle" style="font-size:12px;color:var(--dim);">▸ Show advanced details</span>
+      <div id="confirm-advanced" style="display:none;margin-top:14px;border-top:1px solid var(--border);padding-top:14px;">
+        ${balanceLine ? `<div style="font-size:11px;color:var(--dim);text-transform:uppercase;letter-spacing:0.4px;">Balance delta</div>
+        <div style="font-size:12px;margin-bottom:14px;">${balanceLine}</div>` : ''}
+
+        <div style="font-size:11px;color:var(--dim);text-transform:uppercase;letter-spacing:0.4px;">Inputs (total ${fmtLTC(totalIn / 1e8)} LTC)</div>
+        <div style="margin-bottom:14px;max-height:200px;overflow-y:auto;">${inputsHtml}</div>
+
+        <div style="font-size:11px;color:var(--dim);text-transform:uppercase;letter-spacing:0.4px;">Outputs (total ${fmtLTC(totalOut / 1e8)} LTC)</div>
+        <div style="margin-bottom:14px;max-height:200px;overflow-y:auto;">${outputsHtml}</div>
+
+        ${est.txid ? `<div style="font-size:11px;color:var(--dim);text-transform:uppercase;letter-spacing:0.4px;">Txid</div>
+        <div class="copyable" data-copy="${est.txid}" style="font-size:11px;color:var(--dim);word-break:break-all;">${est.txid}</div>` : ''}
+      </div>
+    </div>`;
+
+  showModal('Confirm Send', `
+    ${summary}
+    ${rejectBlock}
+    ${actionBlock}
+
+    <div style="display:flex;gap:8px;margin-top:14px;align-items:center;">
+      <button class="btn danger" id="confirm-send-btn" ${confirmDisabled ? 'disabled style="opacity:0.5;cursor:not-allowed;"' : ''}
+              onclick="doSendConfirm('${est.confirm_token || ''}')">Confirm</button>
+      <button class="btn btn-sm" style="background:var(--border);color:var(--text);" onclick="hideModal()">Cancel</button>
+    </div>
+
+    ${advancedBlock}
+  `);
+  // Stash the recipe so the queue branch of doSendConfirm can post it
+  // verbatim — recipe-based, not signed-bytes-based, so server can
+  // re-build at execution time against current state.
+  _pendingSendRecipe = recipe;
+}
+
+// Recipe (form data) cached at modal-open time for the queue branch.
+let _pendingSendRecipe = null;
+
+// Toggle the datetime input enabled state to mirror the chosen action.
+function updateSendActionUI() {
+  const radios = document.querySelectorAll('input[name="send-action"]');
+  let chosen = 'now';
+  radios.forEach(r => { if (r.checked) chosen = r.value; });
+  const at = $('#send-action-at');
+  if (at) at.disabled = chosen !== 'queue-scheduled';
+  // Presets only meaningful in scheduled mode; dim them otherwise.
+  document.querySelectorAll('#send-presets .preset-btn').forEach(b => {
+    b.style.opacity = chosen === 'queue-scheduled' ? '1' : '0.55';
+  });
+}
+
+// Schedule preset — pick "auto-broadcast" radio and fill the datetime
+// input with now + offset + small jitter. Jitter (±10% of offset, capped
+// at 5 minutes) avoids many tasks all firing at the same wallclock
+// second when the user mass-schedules.
+function setSchedulePreset(spec) {
+  const offsets = { '1h': 3600, '6h': 21600, '1d': 86400, '1w': 604800 };
+  const offsetSec = offsets[spec];
+  if (!offsetSec) return;
+  // Auto-pick the scheduled radio so the click "just works".
+  const r = document.querySelector('input[name="send-action"][value="queue-scheduled"]');
+  if (r) { r.checked = true; updateSendActionUI(); }
+  // Jitter: up to ±10% of the offset, capped at ±5 min.
+  const jitterRange = Math.min(offsetSec * 0.1, 300);
+  const jitter = Math.floor((Math.random() * 2 - 1) * jitterRange);
+  const targetMs = Date.now() + (offsetSec + jitter) * 1000;
+  const t = new Date(targetMs);
+  const pad = n => String(n).padStart(2, '0');
+  const local = `${t.getFullYear()}-${pad(t.getMonth() + 1)}-${pad(t.getDate())}T${pad(t.getHours())}:${pad(t.getMinutes())}`;
+  const at = $('#send-action-at');
+  if (at) at.value = local;
+}
+
+function toggleConfirmAdvanced() {
+  const block = $('#confirm-advanced');
+  const toggle = $('#confirm-adv-toggle');
+  if (!block || !toggle) return;
+  const shown = block.style.display !== 'none';
+  block.style.display = shown ? 'none' : '';
+  toggle.textContent = shown ? '▸ Show advanced details' : '▾ Hide advanced details';
+}
+
+// Reset the send form back to one empty recipient row + clear Max mode.
+// Used by both the broadcast-now and queue-add branches of doSendConfirm.
+function resetSendForm() {
+  const list = $('#send-recipients');
+  if (list) {
+    while (list.children.length > 1) list.removeChild(list.lastElementChild);
+  }
+  document.querySelectorAll('.send-recipient-row .send-to').forEach(el => el.value = '');
+  document.querySelectorAll('.send-recipient-row .send-amount').forEach(el => el.value = '');
+  const hint = $('#send-fee-hint');
+  if (hint) hint.style.display = 'none';
+  _maxModeActive = false;
+  _maxModeFeeRate = 0;
+  clearManualInputs();
+  resetFeeSelection();
+  resetChangeAddress();
+  refreshRecipientControls();
+}
+
+async function doSendConfirm(token) {
+  // Read which radio is currently selected. now → broadcast through
+  // confirm_token; queue-* → POST /api/queue with the cached recipe.
+  let action = 'now';
+  document.querySelectorAll('input[name="send-action"]').forEach(r => { if (r.checked) action = r.value; });
+
+  if (action !== 'now') {
+    // Queue branch: server stores intent, not signed bytes — fee +
+    // change recompute at execution time against current state.
+    if (!_pendingSendRecipe || !currentWallet) {
+      toast('Cannot queue: recipe missing — re-run Prepare', true);
+      return;
+    }
+    const body = { wallet: currentWallet, ..._pendingSendRecipe };
+    if (action === 'queue-scheduled') {
+      const at = $('#send-action-at')?.value;
+      if (!at) { toast('Pick an auto-broadcast time', true); return; }
+      // datetime-local has no timezone — interpret as wallclock
+      // local time and pass as unix seconds.
+      const ts = Math.floor(new Date(at).getTime() / 1000);
+      if (!ts || ts <= Math.floor(Date.now() / 1000)) {
+        toast('Auto-broadcast time must be in the future', true);
+        return;
+      }
+      body.scheduled_at = String(ts);
+    }
+    hideModal();
+    const data = await api('queue', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (data) {
+      notify('Added to queue: ' + (data.id || ''));
+      resetSendForm();
+    }
+    return;
+  }
+
+  // Broadcast-now branch: existing confirm-token flow.
+  if (!token) { toast('No confirmation token — re-run estimate', true); return; }
+  hideModal();
+  const url = `wallet/send?name=${encodeURIComponent(currentWallet)}&confirm_token=${encodeURIComponent(token)}`;
+  const data = await api(url, { method: 'POST' });
+  if (data) {
+    notify('Transaction broadcast: ' + (data.txid || ''));
+    resetSendForm();
+    refreshWalletData();
+  }
+}
+
+// Max button: fills the Amount input with (confirmed - estimated_fee) —
+// the value the recipient will receive — and arms _maxModeActive so the
+// follow-up Send routes through send_all=true rather than reparsing the
+// LTC display value back into sats. Backed by /api/wallet/estimate-send
+// with send_all=true (dry_run path through liboyoltc).
+async function fillMaxSend() {
+  const to = $('#send-to').value.trim();
+  if (!to) { toast('Enter recipient address first', true); return; }
+  if (!currentWallet) { toast('No wallet selected', true); return; }
+  if (currentWalletIsNode() && !hasOyoFeature('oyo-send')) {
+    toast('Max for node wallets requires oyo-send; enter a fixed amount instead', true);
+    return;
+  }
+  let url = `wallet/estimate-send?name=${encodeURIComponent(currentWallet)}&to=${encodeURIComponent(to)}&send_all=true`;
+  if (_feeRate > 0) url += `&fee_rate_sat_per_vb=${_feeRate}`;
+  try {
+    const data = await api(url);
+    if (!data) return;
+    if (data.amount_sat == null || data.amount_sat <= 0) {
+      toast('No confirmed UTXOs to spend', true);
+      return;
+    }
+    const ltc = (data.amount_sat / 1e8).toFixed(8).replace(/0+$/, '').replace(/\.$/, '');
+    // Set value WITHOUT triggering oninput so _maxModeActive stays armed.
+    $('#send-amount').value = ltc;
+    _maxModeActive = true;
+    _maxModeFeeRate = data.fee_rate_sat_per_vb || 0;
+    const feeSat = data.fee_sat ?? ((data.mweb_fee_sat || 0) + (data.canonical_fee_sat || 0));
+    const rate = data.fee_rate_sat_per_vb || 1;
+    const hint = $('#send-fee-hint');
+    hint.style.display = '';
+    hint.textContent = `Max: recipient gets ${ltc} LTC after ${feeSat} sat fee (rate ${rate} sat/vB) — Send drains the wallet.`;
+  } catch (e) {
+    toast('estimate-send failed: ' + (e?.message || e), true);
+  }
+}
+
+// Manual edit of the anchor-row amount cancels Max mode: the typed value
+// is a fixed amount, not a drain, so the follow-up Send must NOT route
+// through send_all. Bound to #send-amount oninput.
+function onSendAmountEdit() {
+  if (!_maxModeActive) return;
+  _maxModeActive = false;
+  _maxModeFeeRate = 0;
+  const hint = $('#send-fee-hint');
+  if (hint) hint.style.display = 'none';
+}
+
+async function exportWallet(name) {
+  if (!oyoSupported) { toast('Export not available (vanilla node)', true); return; }
+  try {
+    const resp = await fetch(BASE + '/api/wallet/export?name=' + encodeURIComponent(name));
+    if (resp.status === 401) { location.href = BASE + '/login'; return; }
+    if (!resp.ok) {
+      const err = await resp.json();
+      toast(err.error || 'Export failed', true);
+      return;
+    }
+    const blob = await resp.blob();
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = name + '.dat';
+    a.click();
+    URL.revokeObjectURL(a.href);
+    notify('Export downloaded: ' + name + '.dat');
+  } catch(e) { toast(e.message, true); }
+}
+
+// ============================================================
+// Secrets export (P2.6) — DANGEROUS, double-gated
+// ============================================================
+// Step 1: a hard warning. Step 2 (revealSecrets) hits
+// /api/wallet/secrets?confirm=yes — the backend refuses without the
+// explicit confirm, so a stray request can never leak keys.
+function showSecretsWarning() {
+  if (!currentWallet) return;
+  showModal('⚠ Reveal wallet secrets', `
+    <div style="margin-bottom:14px;color:var(--text);">Reveal the <strong>seed string</strong>, <strong>private keys</strong> and MWEB secrets for <strong>${escapeHTML(currentWallet)}</strong>?</div>
+    <div style="margin-bottom:16px;padding:10px;background:rgba(220,80,80,0.12);border-left:3px solid var(--red);border-radius:4px;font-size:12px;color:var(--text);">
+      Anyone who sees these can spend every coin in this wallet. Reveal only on a trusted screen; never share, screenshot, or paste them anywhere.
+    </div>
+    <div style="display:flex;gap:8px;">
+      <button class="btn danger" onclick="revealSecrets()">Reveal secrets</button>
+      <button class="btn btn-sm" style="background:var(--border);color:var(--text);" onclick="hideModal()">Cancel</button>
+    </div>
+  `);
+}
+
+async function revealSecrets() {
+  const name = currentWallet;
+  if (!name) return;
+  const data = await api('wallet/secrets?name=' + encodeURIComponent(name) + '&confirm=yes');
+  if (!data) return;   // api() already toasted on error
+  renderSecretsModal(data);
+}
+
+function renderSecretsModal(d) {
+  const wifRows = (Array.isArray(d.p2wpkh) && d.p2wpkh.length)
+    ? `<div style="font-size:11px;color:var(--dim);text-transform:uppercase;letter-spacing:0.4px;margin-top:14px;">P2WPKH private keys (WIF)</div>`
+      + d.p2wpkh.map(k => `<div style="display:flex;justify-content:space-between;gap:8px;border-top:1px solid var(--border);padding:6px 0;font-size:11px;">
+          <span style="color:var(--dim);white-space:nowrap;">[${k.index}] ${shortAddr(k.address)}</span>
+          <span class="copyable hash-full" data-copy="${escapeHTML(k.wif)}" style="word-break:break-all;">${escapeHTML(k.wif)}</span>
+        </div>`).join('')
+    : '';
+  const mweb = (d.mweb && (d.mweb.scan_secret || d.mweb.spend_secret))
+    ? `<div style="font-size:11px;color:var(--dim);text-transform:uppercase;letter-spacing:0.4px;margin-top:14px;">MWEB secrets</div>`
+      + field('Scan secret',  `<span class="copyable hash-full" data-copy="${escapeHTML(d.mweb.scan_secret)}">${escapeHTML(d.mweb.scan_secret)}</span>`)
+      + field('Spend secret', `<span class="copyable hash-full" data-copy="${escapeHTML(d.mweb.spend_secret)}">${escapeHTML(d.mweb.spend_secret)}</span>`)
+    : '';
+  showModal('🔑 Wallet secrets — ' + escapeHTML(d.name || ''), `
+    <div style="margin-bottom:12px;padding:10px;background:rgba(220,80,80,0.12);border-left:3px solid var(--red);border-radius:4px;font-size:12px;">Full spend authority. Copy to a safe place; never share.</div>
+    ${field('Seed type', escapeHTML(d.seed_type || ''))}
+    ${field('Seed string', `<span class="copyable hash-full" data-copy="${escapeHTML(d.seed || '')}">${escapeHTML(d.seed || '')}</span>`)}
+    ${wifRows}
+    ${mweb}
+    <div style="display:flex;gap:8px;margin-top:16px;">
+      <button class="btn btn-sm" style="background:var(--border);color:var(--text);" onclick="hideModal()">Close</button>
+    </div>
+  `);
+}
+
+// ============================================================
+// Wallet Menu
+// ============================================================
+function toggleAddMenu() {
+  const m = $('#add-wallet-menu');
+  m.style.display = m.style.display === 'none' ? 'block' : 'none';
+}
+function hideAddMenu() { $('#add-wallet-menu').style.display = 'none'; }
+document.addEventListener('click', e => {
+  if (!e.target.closest('#add-wallet-menu') && !e.target.closest('[onclick*="toggleAddMenu"]')) {
+    hideAddMenu();
+  }
+});
+
+// ============================================================
+// Modals
+// ============================================================
+function showModal(title, bodyHtml) {
+  $('#modal-title').textContent = title;
+  $('#modal-body').innerHTML = bodyHtml;
+  $('#modal-overlay').classList.add('visible');
+}
+function hideModal() { $('#modal-overlay').classList.remove('visible'); }
+
+function showCreateWallet() {
+  showModal('Create Wallet', `
+    <div class="form-group"><label>Name</label><input type="text" id="create-wallet-name" placeholder="my-wallet"></div>
+    <div class="form-group">
+      <label>Type</label>
+      <div style="display:flex;gap:8px;margin-top:4px;flex-wrap:wrap;">
+        <button class="btn btn-sm" id="type-oyo" onclick="setWalletType('oyo')" style="flex:1;">OYO</button>
+        <button class="btn btn-sm" id="type-seed" onclick="setWalletType('seed')" style="flex:1;background:var(--border);color:var(--text);">Node</button>
+      </div>
+      <input type="hidden" id="create-wallet-type" value="oyo">
+    </div>
+    <div class="form-group" id="seed-input-group">
+      <label>Seed string <span id="seed-entropy" style="font-size:12px;"></span></label>
+      <input type="text" id="create-wallet-seed" placeholder="any string" oninput="updateSeedEntropy(this.value)">
+      <div id="seed-help-oyo" style="font-size:12px;color:var(--dim);margin-top:4px;">OYO wallet — keys live in oyo-web (no .dat on the node). The seed string drives both sides: P2WPKH via oyo_v1 and MWEB via oyo_mweb_v1_seed→master. Save the seed; we don't persist it.</div>
+      <div id="seed-help-node" style="font-size:12px;color:var(--dim);margin-top:4px;display:none;">Node wallet — a seeded HD wallet stored on the node (.dat file). The free-form seed string is hashed into the wallet's master key via sethdseed. Save the seed; we don't persist it.</div>
+    </div>
+    <div class="form-group" id="oyo-kinds-group">
+      <div style="font-size:12px;color:var(--dim);">Sides (uncheck one to cap):</div>
+      <div style="display:flex;gap:12px;margin-top:4px;">
+        <label style="font-size:12px;"><input type="checkbox" id="oyo-kind-p2wpkh" checked> P2WPKH (canonical)</label>
+        <label style="font-size:12px;"><input type="checkbox" id="oyo-kind-mweb" checked> MWEB (stealth)</label>
+      </div>
+      <div style="font-size:11px;color:var(--dim);margin-top:4px;">Both checked = Universal (R↔M peg-in / peg-out). Only P2WPKH = Regular. Only MWEB = stealth-only.</div>
+    </div>
+    <div class="form-group" id="oyo-count-group">
+      <label>Address count</label>
+      <input type="number" id="create-wallet-count" value="8" min="1" max="1000">
+      <div style="font-size:12px;color:var(--dim);margin-top:4px;">Initial P2WPKH pre-allocation pool. Ignored when MWEB-only.</div>
+    </div>
+    <div class="form-group" id="oyo-birth-group">
+      <label>MWEB scan from</label>
+      <select id="create-wallet-birth">
+        <option value="">Genesis (full history — slowest)</option>
+        <option value="7">~ last 7 days</option>
+        <option value="30">~ last 30 days</option>
+        <option value="90">~ last 90 days</option>
+        <option value="365">~ last year</option>
+      </select>
+      <div style="font-size:12px;color:var(--dim);margin-top:4px;">A new MWEB wallet only needs to scan blocks since its birth. ~576 blocks/day. Pick a point <b>before</b> your first receive — too late and earlier funds are missed. Affects the MWEB (stealth) side only.</div>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:12px;">
+      <button class="btn" id="create-wallet-submit" onclick="createWallet()">Create</button>
+      <button class="btn btn-sm" style="background:var(--border);color:var(--text);" onclick="hideModal()">Cancel</button>
+    </div>
+  `);
+  setTimeout(() => { const el = $('#create-wallet-name'); if (el) el.focus(); }, 100);
+}
+
+function setWalletType(type) {
+  $('#create-wallet-type').value = type;
+  const oyo = $('#type-oyo'), seed = $('#type-seed');
+  [oyo, seed].forEach(b => { if (b) { b.style.background = 'var(--border)'; b.style.color = 'var(--text)'; } });
+  const active = type === 'oyo' ? oyo : type === 'seed' ? seed : null;
+  if (active) { active.style.background = 'var(--accent)'; active.style.color = '#000'; }
+  // OYO and node Seed both require a free-form string input. OYO routes
+  // through liboyoltc (P2WPKH oyo_v1, MWEB oyo_mweb_v1_seed master);
+  // Seed creates a node wallet via sethdseed.
+  $('#seed-input-group').style.display     = '';
+  $('#seed-help-oyo').style.display        = type === 'oyo'  ? '' : 'none';
+  $('#seed-help-node').style.display       = type === 'seed' ? '' : 'none';
+  $('#oyo-kinds-group').style.display      = type === 'oyo'  ? '' : 'none';
+  $('#oyo-count-group').style.display      = type === 'oyo'  ? '' : 'none';
+  $('#oyo-birth-group').style.display      = type === 'oyo'  ? '' : 'none';
+}
+
+async function deflateSize(str) {
+  const cs = new CompressionStream('deflate');
+  const writer = cs.writable.getWriter();
+  if (str) writer.write(new TextEncoder().encode(str));
+  writer.close();
+  const chunks = [];
+  const reader = cs.readable.getReader();
+  while (true) {
+    const { done, value: chunk } = await reader.read();
+    if (done) break;
+    chunks.push(chunk);
+  }
+  return new Blob(chunks).size;
+}
+
+let _deflateBaseline = null;
+
+async function updateSeedEntropy(value) {
+  const el = $('#seed-entropy');
+  if (!value) { el.textContent = ''; return; }
+  try {
+    if (_deflateBaseline === null) _deflateBaseline = await deflateSize('');
+    const compressed = await deflateSize(value);
+    const bits = Math.max(0, (compressed - _deflateBaseline) * 8);
+    el.textContent = '~' + bits + ' bit';
+    el.style.color = bits >= 256 ? '#4a4' : bits >= 128 ? '#ca4' : '#c44';
+  } catch (e) {
+    el.textContent = '';
+  }
+}
+
+async function createWallet() {
+  const name = $('#create-wallet-name').value.trim();
+  const type = $('#create-wallet-type').value;
+  if (!name) { toast('Name required', true); return; }
+  let url = `wallet/create?name=${encodeURIComponent(name)}&type=${type}`;
+  if (type === 'seed') {
+    const seed = $('#create-wallet-seed').value;
+    if (!seed) { toast('Seed string required', true); return; }
+    url += `&seed=${encodeURIComponent(seed)}`;
+  } else if (type === 'oyo') {
+    const seed = $('#create-wallet-seed').value;
+    if (!seed) { toast('Seed string required', true); return; }
+    const wantP2 = $('#oyo-kind-p2wpkh').checked;
+    const wantMw = $('#oyo-kind-mweb').checked;
+    if (!wantP2 && !wantMw) { toast('Pick at least one side (P2WPKH or MWEB)', true); return; }
+    // Backend kind: universal handles all three shapes via the kinds cap
+    // — both sides on, P2WPKH-only, or MWEB-only. Single create path,
+    // no per-shape branching needed below.
+    url = `wallet/create?name=${encodeURIComponent(name)}&type=universal&seed=${encodeURIComponent(seed)}`;
+    const count = $('#create-wallet-count').value;
+    if (count) url += `&address_count=${encodeURIComponent(count)}`;
+    if (!(wantP2 && wantMw)) {
+      const kinds = [];
+      if (wantP2) kinds.push('p2wpkh');
+      if (wantMw) kinds.push('mweb');
+      url += `&kinds=${encodeURIComponent(kinds.join(','))}`;
+    }
+    // MWEB birth height: convert the chosen age to a block height against the
+    // live engine tip (~576 blocks/day) so the MWEB bootstrap can skip the
+    // pre-birth journal. Empty / unresolved tip = scan from genesis.
+    const birthDays = $('#create-wallet-birth') ? $('#create-wallet-birth').value : '';
+    if (wantMw && birthDays) {
+      const info = await api('info');
+      const tip = (info && info.engine && info.engine.tip_height != null) ? info.engine.tip_height : null;
+      if (tip != null) {
+        const bh = Math.max(0, Math.floor(tip - Number(birthDays) * 576));
+        url += `&birth_height=${bh}`;
+      }
+    }
+  }
+  // Disable + show progress while the create is in flight: a universal
+  // wallet with the MWEB side runs an initial-sync that can take a moment,
+  // and without feedback the modal looks "stuck" (reviewer P1.3).
+  const btn = $('#create-wallet-submit');
+  if (btn) { btn.disabled = true; btn.textContent = 'Creating…'; }
+  const data = await api(url, { method: 'POST' });
+  if (data) { notify('Wallet created: ' + name); hideModal(); navigate('wallet/' + encodeURIComponent(name)); }
+  else if (btn) { btn.disabled = false; btn.textContent = 'Create'; }
+}
+
+function showImportDialog() {
+  if (!oyoSupported) { toast('Import not available (vanilla node)', true); return; }
+  showModal('Import Wallet', `
+    <div class="form-group"><label>Wallet name</label><input type="text" id="import-wallet-name" placeholder="my-wallet"></div>
+    <div class="form-group">
+      <label>Wallet file (.dat)</label>
+      <div id="import-drop-zone" style="border:2px dashed var(--border);border-radius:8px;padding:24px;text-align:center;color:var(--dim);cursor:pointer;transition:border-color 0.2s;"
+           onclick="$('#import-file-input').click()"
+           ondragover="event.preventDefault();this.style.borderColor='var(--accent)';"
+           ondragleave="this.style.borderColor='var(--border)';"
+           ondrop="event.preventDefault();this.style.borderColor='var(--border)';handleImportFile(event.dataTransfer.files[0]);">
+        <div id="import-file-label">Drop .dat file here or click to browse</div>
+      </div>
+      <input type="file" id="import-file-input" accept=".dat" style="display:none;" onchange="handleImportFile(this.files[0])">
+    </div>
+    <div style="display:flex;gap:8px;margin-top:12px;">
+      <button class="btn" id="import-btn" onclick="importWalletFromFile()" disabled>Import</button>
+      <button class="btn btn-sm" style="background:var(--border);color:var(--text);" onclick="hideModal()">Cancel</button>
+    </div>
+  `);
+}
+
+let _importFileData = null;
+function handleImportFile(file) {
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    _importFileData = reader.result;
+    $('#import-file-label').textContent = file.name + ' (' + formatSize(file.size) + ')';
+    $('#import-file-label').style.color = 'var(--accent)';
+    $('#import-btn').disabled = false;
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+async function importWalletFromFile() {
+  const name = $('#import-wallet-name').value.trim();
+  if (!name) { toast('Name required', true); return; }
+  if (!_importFileData) { toast('File required', true); return; }
+
+  const btn = $('#import-btn');
+  btn.disabled = true;
+  btn.textContent = 'Importing...';
+
+  try {
+    const resp = await fetch(BASE + '/api/wallet/import?name=' + encodeURIComponent(name), {
+      method: 'POST',
+      body: _importFileData,
+      headers: { 'Content-Type': 'application/octet-stream' }
+    });
+    if (resp.status === 401) { location.href = BASE + '/login'; return; }
+    const data = await resp.json();
+    if (data.error) { toast(data.error, true); btn.disabled = false; btn.textContent = 'Import'; return; }
+
+    _importFileData = null;
+    notify('Wallet imported: ' + name);
+    hideModal();
+    refreshWalletList();
+  } catch(e) {
+    toast(e.message, true);
+    btn.disabled = false;
+    btn.textContent = 'Import';
+  }
+}
+
+// ============================================================
+// Explorer
+// ============================================================
+function showExplorerLoading() {
+  const el = $('#explorer-result');
+  el.style.display = '';
+  el.innerHTML = '<div class="loading-fade">Loading...</div>';
+  $('.explorer-search').style.display = 'none';
+  // Hide the recent-blocks card while a deep-link / search detail is
+  // displayed — the user looked something up, show only that.
+  const recent = $('#explorer-recent');
+  if (recent) recent.style.display = 'none';
+  return el;
+}
+
+function showExplorerError(msg) {
+  const el = $('#explorer-result');
+  el.innerHTML = `<div style="color:var(--dim);padding:20px;">${msg || 'Not found.'}</div>`;
+  $('.explorer-search').style.display = '';
+}
+
+// Default explorer landing — table of the latest blocks, refreshed
+// on the global ticker while the explorer tab is active and no
+// detail view is open.
+async function loadRecentBlocks() {
+  const recent = $('#explorer-recent');
+  // Skip if a detail view is showing — the user is reading something,
+  // don't yank the card back over it.
+  const result = $('#explorer-result');
+  if (result && result.style.display !== 'none' && result.innerHTML) {
+    if (recent) recent.style.display = 'none';
+    return;
+  }
+  if (recent) recent.style.display = '';
+  const blocks = await api('blocks');
+  const tbody = $('#explorer-recent-rows');
+  const empty = $('#explorer-recent-empty');
+  if (!tbody || !empty) return;
+  if (!blocks || blocks.length === 0) {
+    tbody.innerHTML = '';
+    empty.style.display = '';
+    return;
+  }
+  empty.style.display = 'none';
+  tbody.innerHTML = blocks.slice(0, 20).map(b => {
+    const hash = b.hash || '';
+    const short = hash ? hash.slice(0, 16) + '…' + hash.slice(-8) : '';
+    const ts = b.time ? new Date(b.time * 1000).toLocaleString() : '';
+    return `<tr style="cursor:pointer;" onclick="navigate('block/${hash}')">
+      <td>${b.height ?? ''}</td>
+      <td><span class="hash-full link" style="font-size:11px;">${short}</span></td>
+      <td>${b.tx_count ?? (Array.isArray(b.tx) ? b.tx.length : '')}</td>
+      <td style="font-size:11px;color:var(--dim);">${ts}</td>
+    </tr>`;
+  }).join('');
+}
+
+async function explorerSearch() {
+  const q = $('#explorer-query').value.trim();
+  if (!q) return;
+  const el = showExplorerLoading();
+  const data = await api('search?q=' + encodeURIComponent(q));
+  if (!data) { showExplorerError(); return; }
+  if (data.type === 'block') navigate('block/' + encodeURIComponent(data.data?.height ?? data.data?.hash ?? q));
+  else if (data.type === 'tx') navigate('tx/' + encodeURIComponent(data.data?.txid || q));
+  else if (data.type === 'address') navigate('address/' + encodeURIComponent(data.address || q));
+  else showExplorerError('Unknown result type.');
+}
+
+async function loadBlock(id) {
+  const el = showExplorerLoading();
+  const data = await api('block/' + encodeURIComponent(id));
+  if (!data) { showExplorerError(); return; }
+  renderExplorerBlock(el, data);
+}
+
+async function loadTx(txid) {
+  const el = showExplorerLoading();
+  const data = await api('tx/' + encodeURIComponent(txid));
+  if (!data) { showExplorerError(); return; }
+  renderExplorerTx(el, data);
+}
+
+async function loadAddress(addr, limit) {
+  const el = showExplorerLoading();
+  let path = 'address/' + encodeURIComponent(addr) + '?history=1';
+  if (limit) path += '&limit=' + limit; // doubling "load more" widens the scan window
+  const data = await api(path);
+  if (!data) { showExplorerError(); return; }
+  renderExplorerAddress(el, data, limit);
+}
+
+function renderExplorerBlock(el, b) {
+  history.replaceState(null, '', '#block/' + b.height);
+  const txList = (b.tx || []).map(tx => {
+    const txid = typeof tx === 'string' ? tx : tx.txid;
+    const isCoinbase = typeof tx === 'object' && tx.vin?.[0]?.coinbase;
+    const totalOut = typeof tx === 'object' ? fmtLTC(tx.vout.reduce((s, v) => s + (v.value || 0), 0)) : '';
+    return `<tr><td><span class="hash-full link" onclick="navigate('tx/${txid}')">${txid}</span></td><td>${isCoinbase ? 'coinbase' : 'transfer'}</td><td>${totalOut} LTC</td></tr>`;
+  }).join('');
+  const prevLink = b.previousblockhash ? linkHash(b.previousblockhash, 'block/' + (b.height - 1)) : '<span style="color:var(--dim)">Genesis block</span>';
+  const nextLink = b.nextblockhash ? linkHash(b.nextblockhash, 'block/' + (b.height + 1)) : '<span style="color:var(--dim)">Latest block</span>';
+  el.innerHTML = `<div class="content-fade">
+    <h2>Block #${b.height}</h2>
+    ${field('Hash', copyHash(b.hash), b.hash)}
+    ${field('Height', `<span class="copyable" data-copy="${b.height}">${b.height}</span>`)}
+    ${field('Time', formatTime(b.time))}
+    ${field('Transactions', b.nTx)}
+    ${field('Size', formatSize(b.size))}
+    ${field('Difficulty', fmtDifficulty(b.difficulty))}
+    ${field('Merkle Root', copyHash(b.merkleroot), b.merkleroot)}
+    ${field('Nonce', `<span class="copyable" data-copy="${b.nonce}">${b.nonce}</span>`)}
+    ${field('Prev Block', prevLink)}
+    ${field('Next Block', nextLink)}
+    <h2 style="margin-top:20px;">Transactions (${b.nTx})</h2>
+    <table><thead><tr><th>TxID</th><th>Type</th><th>Total Output</th></tr></thead><tbody>${txList}</tbody></table>
+  </div>`;
+}
+
+function renderExplorerTx(el, tx) {
+  history.replaceState(null, '', '#tx/' + tx.txid);
+
+  // Wallet-sourced tx (MWEB fallback) — different format
+  if (tx.source === 'wallet') {
+    const details = tx.details || [];
+    const rows = details.map(d => {
+      const addrHtml = d.address ? `<span class="hash-full link" onclick="navigate('address/${encodeURIComponent(d.address)}')">${d.address}</span>` : '-';
+      const sign = d.amount >= 0 ? '+' : '';
+      const color = d.amount >= 0 ? 'var(--green)' : 'var(--red)';
+      return `<tr><td>${d.category || '-'}</td><td>${addrHtml}</td><td style="color:${color};">${sign}${fmtLTC(d.amount)} LTC</td></tr>`;
+    }).join('');
+    const pending = !tx.blockhash || tx.confirmations === 0;
+    const blockLink = tx.blockhash ? linkHash(tx.blockhash, 'block/' + tx.blockhash) : '<span style="color:var(--dim);">unconfirmed</span>';
+    const confHtml = tx.confirmations !== undefined ? field('Confirmations', pending ? `<span style="color:var(--dim);">0 (pending)</span>` : tx.confirmations) : '';
+    const feeHtml = tx.fee !== undefined ? field('Fee', fmtLTC(Math.abs(tx.fee)) + ' LTC') : '';
+    el.innerHTML = `<div class="content-fade">
+      <h2>Transaction <span style="color:var(--dim);font-size:13px;font-weight:400;">(MWEB)</span></h2>
+      ${field('TxID', copyHash(tx.txid), tx.txid)}
+      ${field('Amount', fmtLTC(tx.amount) + ' LTC')}
+      ${feeHtml}
+      ${field('Block', blockLink)}
+      ${confHtml}
+      ${field('Wallet', tx.wallet)}
+      <h2 style="margin-top:20px;">Details (${details.length})</h2>
+      <table><thead><tr><th>Category</th><th>Address</th><th>Amount</th></tr></thead><tbody>${rows}</tbody></table>
+    </div>`;
+    return;
+  }
+
+  const inputs = (tx.vin || []).map(inp => {
+    if (inp.coinbase) return `<tr><td colspan="3">coinbase (mining reward)</td></tr>`;
+    const addr = inp.address || '-';
+    const addrHtml = addr !== '-' ? `<span class="hash-full link" onclick="navigate('address/${encodeURIComponent(addr)}')">${addr}</span>` : '-';
+    const amountHtml = inp.value !== undefined ? fmtLTC(inp.value) + ' LTC' : '-';
+    return `<tr><td>${addrHtml}</td><td>${amountHtml}</td><td><span class="hash-full link" onclick="navigate('tx/${inp.txid}')">${inp.txid}</span></td></tr>`;
+  }).join('');
+  const outputs = (tx.vout || []).map(out => {
+    const addr = out.scriptPubKey?.addresses?.[0] || out.scriptPubKey?.address || '-';
+    const addrHtml = addr !== '-' ? `<span class="hash-full link" onclick="navigate('address/${encodeURIComponent(addr)}')">${addr}</span>` : '-';
+    return `<tr><td>${out.n}</td><td>${addrHtml}</td><td>${fmtLTC(out.value)} LTC</td></tr>`;
+  }).join('');
+  const totalOut = tx.vout.reduce((s, v) => s + (v.value || 0), 0);
+  const pending = !tx.blockhash || tx.confirmations === 0;
+  const blockLink = tx.blockhash ? linkHash(tx.blockhash, 'block/' + tx.blockhash) : '<span style="color:var(--dim);">unconfirmed</span>';
+  const confHtml = tx.confirmations !== undefined ? field('Confirmations', pending ? `<span style="color:var(--dim);">0 (pending)</span>` : tx.confirmations) : '';
+  el.innerHTML = `<div class="content-fade">
+    <h2>Transaction${pending ? ' <span style="color:var(--dim);font-size:13px;font-weight:400;">(pending)</span>' : ''}</h2>
+    ${field('TxID', copyHash(tx.txid), tx.txid)}
+    ${field('Size', tx.size + ' bytes (vsize: ' + tx.vsize + ')')}
+    ${field('Total Output', fmtLTC(totalOut) + ' LTC')}
+    ${field('Block', blockLink)}
+    ${confHtml}
+    <h2 style="margin-top:20px;">Inputs (${tx.vin.length})</h2>
+    <table><thead><tr><th>Address</th><th>Amount</th><th>From TxID</th></tr></thead><tbody>${inputs}</tbody></table>
+    <h2 style="margin-top:20px;">Outputs (${tx.vout.length})</h2>
+    <table><thead><tr><th>#</th><th>Address</th><th>Amount</th></tr></thead><tbody>${outputs}</tbody></table>
+  </div>`;
+}
+
+// Relative age of a block height as a clickable link to the block page. The
+// mirror stores no per-block timestamps, so age is ESTIMATED from height ×
+// ~2.5 min (fine for "N days ago"; the exact time is one click away on the
+// block page). tip = current chain tip height.
+function blockAgoCell(height, tip) {
+  if (height == null) return '—';
+  let label;
+  if (!tip || height > tip) {
+    label = '#' + Number(height).toLocaleString();
+  } else {
+    const secs = (tip - height) * 150;
+    let s;
+    if (secs < 3600)             s = Math.max(1, Math.round(secs / 60)) + ' min';
+    else if (secs < 86400)       s = Math.round(secs / 3600) + ' hr';
+    else if (secs < 86400 * 60)  s = Math.round(secs / 86400) + ' days';
+    else if (secs < 86400 * 730) s = Math.round(secs / (86400 * 30)) + ' mo';
+    else                         s = (secs / (86400 * 365)).toFixed(1) + ' yr';
+    label = '~' + s + ' ago';
+  }
+  return `<span class="link" onclick="navigate('block/${height}')" title="Block ${Number(height).toLocaleString()} — estimated age, click for exact time">${label}</span>`;
+}
+
+function renderExplorerAddress(el, data, limit) {
+  const limitQS = limit ? '?limit=' + encodeURIComponent(limit) : '';
+  history.replaceState(null, '', '#address/' + encodeURIComponent(data.address) + limitQS);
+  const tipH = data.tip_height || 0;
+  const utxos = (data.utxos || []).slice().sort((a, b) => (b.height || 0) - (a.height || 0));
+  const pending = data.pending || [];
+  // The engine returns the txids touching this address in the mempool; the
+  // signed totals are the aggregate Pending in/out shown in the balance block.
+  const pendingRows = pending.map(p =>
+    `<tr style="opacity:0.6;"><td><span class="hash-full link" onclick="navigate('tx/${p.txid}')">${p.txid}</span></td></tr>`
+  ).join('');
+  // Per-UTXO status badge: coinbase / peg-out outputs are immature until they
+  // bury COINBASE_MATURITY (100) / PEGOUT_MATURITY (6) blocks. liboyoltc tags
+  // each with coinbase/pegout/mature straight from the local mirror.
+  const utxoRows = utxos.map(u => {
+    let status;
+    if (u.mature === false) {
+      const why = u.coinbase ? ' (coinbase)' : (u.pegout ? ' (peg-out)' : '');
+      status = `<span style="color:var(--dim2);">immature${why}</span>`;
+    } else {
+      status = '<span style="color:var(--green);">spendable</span>';
+    }
+    return `<tr><td><span class="hash-full link" onclick="navigate('tx/${u.txid}')">${u.txid}</span></td><td>${u.vout}</td><td>${fmtLTC(u.amount)} LTC</td><td>${blockAgoCell(u.height, tipH)}</td><td>${status}</td></tr>`;
+  }).join('');
+  // MWEB stealth addresses live in a separate UTXO set the canonical
+  // mirror can't reach. For our own MWEB addresses oyo-web has the balance
+  // via the wallet's keychain; foreign stealth addresses are opaque by
+  // design (encrypted output messages, no scan_secret).
+  const isMweb   = !!data.mweb;
+  const foreign  = !!data.foreign;
+  const mwebNote = isMweb ? `<div style="padding:8px;font-size:12px;color:var(--dim);background:var(--border);border-radius:4px;margin-bottom:12px;">${
+    foreign
+      ? 'MWEB stealth address. Balance is private — viewable only by the recipient (we do not have its scan secret).'
+      : 'MWEB stealth address — balance from your wallet\'s rewound outputs.'
+  }</div>` : '';
+
+  // Confirmed total = available + immature. Show the split only when something
+  // is locked up so plain addresses stay uncluttered. Balance is the total
+  // unspent (what scantxoutset would report), so ?verify=node can match it.
+  const immatureSat = data.immature_sat || 0;
+  const availableSat = data.available_sat;
+  const pendingInSat = data.pending_in_sat || 0;
+  const pendingOutSat = data.pending_out_sat || 0;
+  const verifyBadge = data.node_match === true
+    ? ' <span style="color:var(--green);font-size:11px;">✓ matches node</span>'
+    : data.node_match === false
+      ? ' <span style="color:var(--red);font-size:11px;">✗ differs from node</span>'
+      : '';
+  let balanceFields;
+  if (isMweb && foreign) {
+    balanceFields = field('Balance', '— (private)');
+  } else {
+    const balVal = `<span style="font-size:17px;font-weight:600;color:var(--text);">${data.balance !== undefined ? fmtLTC(data.balance) : '0'} LTC</span>`;
+    balanceFields = field('Balance', balVal + verifyBadge);
+    if (immatureSat > 0) {
+      balanceFields += field('Available', `<span style="color:var(--green);">${fmtLTC((availableSat || 0) / 1e8)} LTC</span> <span style="font-size:11px;color:var(--dim);">spendable now</span>`);
+      balanceFields += field('Immature', `<span style="color:var(--dim2);">${fmtLTC(immatureSat / 1e8)} LTC</span> <span style="font-size:11px;color:var(--dim);">maturing</span>`);
+    }
+    // Unconfirmed (mempool) movement — computed by the engine for any address.
+    if (pendingInSat > 0) balanceFields += field('Pending in', `<span style="color:var(--green);">+${fmtLTC(pendingInSat / 1e8)} LTC</span> <span style="font-size:11px;color:var(--dim);">unconfirmed</span>`);
+    if (pendingOutSat > 0) balanceFields += field('Pending out', `<span style="color:var(--red);">−${fmtLTC(pendingOutSat / 1e8)} LTC</span> <span style="font-size:11px;color:var(--dim);">unconfirmed</span>`);
+  }
+  // Partial-window notice + doubling "load more". The explorer scans only the
+  // newest `scan_limit` outputs of an address (so a hot address can't stall the
+  // engine while the lock is held), so balance & history can be incomplete; the
+  // user widens the window one engine-capped step at a time.
+  if ((data.utxos_truncated || data.received_truncated) && !isMweb) {
+    const more = data.next_limit
+      ? ` <span class="link" onclick="loadAddress('${data.address}', ${data.next_limit})">load ${Number(data.next_limit).toLocaleString()}</span>`
+      : '';
+    balanceFields += `<div style="padding:6px 0;font-size:11px;color:var(--dim);">⚠ Partial — only the newest ${data.scan_limit || ''} outputs scanned; balance &amp; history may be incomplete.${more}</div>`;
+  }
+  const utxoCount = data.utxo_count !== undefined ? data.utxo_count : utxos.length;
+  const truncNote = data.utxos_truncated
+    ? `<div style="padding:6px 0;font-size:11px;color:var(--dim);">Partial — only the newest ${data.scan_limit || utxos.length} outputs scanned.</div>`
+    : '';
+
+  // Output history — every output the address ever received (spent + unspent),
+  // from the full regular journal. data.received is present only with ?history=1
+  // (the address page requests it). Newest first; spent rows dimmed.
+  const received = (data.received || []).slice().sort((a, b) => (b.height || 0) - (a.height || 0));
+  const recvCount = data.received_count !== undefined ? data.received_count : received.length;
+  const totalRecv = (data.total_received_sat || 0) / 1e8;
+  const totalSpent = (data.total_spent_sat || 0) / 1e8;
+  const histRows = received.map(o => {
+    let status;
+    if (o.spent) status = `<span style="color:var(--dim2);">spent @ ${o.spent_height}</span>`;
+    else { const why = o.coinbase ? ' (coinbase)' : (o.pegout ? ' (peg-out)' : ''); status = `<span style="color:var(--green);">unspent${why}</span>`; }
+    // MWEB outputs are stealth — no txid. The output_id alone identifies the
+    // output (no public tx page to link, and no vout analog), so the Output
+    // column shows "—" for MWEB rows. Canonical rows keep the txid link + vout.
+    const idCell = o.output_id !== undefined
+      ? `<span class="hash-full" title="${o.output_id}">${shortAddr(o.output_id)}</span>`
+      : `<span class="hash-full link" onclick="navigate('tx/${o.txid}')">${o.txid}</span>`;
+    const outCell = o.output_id !== undefined ? '—' : o.vout;
+    return `<tr${o.spent ? ' style="opacity:0.55;"' : ''}><td>${idCell}</td><td>${outCell}</td><td>${fmtLTC(o.amount)} LTC</td><td>${blockAgoCell(o.height, tipH)}</td><td>${status}</td></tr>`;
+  }).join('');
+  const histTrunc = data.received_truncated
+    ? `<div style="padding:6px 0;font-size:11px;color:var(--dim);">Newest ${received.length} outputs shown — the address has more (use the “load” link by the balance for a wider window).</div>`
+    : '';
+  const historyBlock = received.length === 0
+    ? '<div style="padding:16px;color:var(--dim);">No outputs received by this address yet (the engine may still be syncing to its blocks).</div>'
+    : `<div style="font-size:12px;color:var(--dim);margin-top:16px;">Total received <span style="color:var(--text);">${fmtLTC(totalRecv)} LTC</span> · spent <span style="color:var(--dim2);">${fmtLTC(totalSpent)} LTC</span> · current <span style="color:var(--green);">${fmtLTC(totalRecv - totalSpent)} LTC</span></div>
+       <h2 style="margin-top:10px;">Output history (${recvCount})</h2>${histTrunc}<table><thead><tr><th>${isMweb ? 'Output ID' : 'TxID'}</th><th>Output</th><th>Amount</th><th>Received</th><th>Status</th></tr></thead><tbody>${histRows}</tbody></table>`;
+
+  el.innerHTML = `<div class="content-fade">
+    <h2>Address</h2>
+    ${mwebNote}
+    ${field('Address', copyHash(data.address), data.address)}
+    ${balanceFields}
+    ${data.wallet ? field('Wallet', `<span class="link" onclick="navigate('wallet/${encodeURIComponent(data.wallet)}')">${data.wallet}</span>`) : ''}
+    ${pending.length > 0 ? `<h2 style="margin-top:20px;">Pending (${pending.length})</h2><table><thead><tr><th>Unconfirmed TxID</th></tr></thead><tbody>${pendingRows}</tbody></table>` : ''}
+    ${(isMweb && foreign) ? ''
+      : (data.received !== undefined)
+        ? historyBlock
+        : (utxos.length === 0
+            ? '<div style="padding:16px;color:var(--dim);">No unspent outputs</div>'
+            : `<h2 style="margin-top:20px;">UTXOs (${utxoCount})</h2>${truncNote}<table><thead><tr><th>TxID</th><th>Output</th><th>Amount</th><th>Age</th><th>Status</th></tr></thead><tbody>${utxoRows}</tbody></table>`)}
+  </div>`;
+}
+
+// ============================================================
+// Mempool
+// ============================================================
+// ============================================================
+// Syncing
+// ============================================================
+function _renderSyncTable(tbodyId, rows) {
+  $('#' + tbodyId).innerHTML = rows
+    .map(([k, v]) => `<tr><td style="color:var(--dim);width:240px;">${k}</td><td>${v}</td></tr>`)
+    .join('');
+}
+async function resyncMirror() {
+  if (!confirm('Wipe the chain mirror and rebuild from the node?\n\nDropped: LevelDB mirror, in-memory chain state, mempool cache, per-wallet UTXO bookkeeping. Kept: wallet seeds and OYO wallet registry. Each wallet is reopened and bootstrapped against the current chain tip.')) return;
+  notify('Resync running…');
+  const data = await api('syncing/resync', { method: 'POST' });
+  if (!data) return;
+  const reopened = (data.wallets_reopened || []).length;
+  notify(`Resync done — ${reopened} wallet(s) reopened`);
+  refreshSyncing();
+  refreshWalletData();
+}
+
+async function refreshSyncing() {
+  const data = await api('syncing');
+  if (!data) return;
+
+  // Desync banner — surface a hard stop to the operator when the node
+  // has switched to a different chain (or our tip is past a deep reorg
+  // not covered by liboyoltc's rollback window).
+  const banner = $('#sync-desync-banner');
+  const reasonEl = $('#sync-desync-reason');
+  if (banner) {
+    if (data.oyoltc?.desync) {
+      banner.style.display = '';
+      if (reasonEl) reasonEl.textContent = data.oyoltc.desync_reason || '';
+    } else {
+      banner.style.display = 'none';
+    }
+  }
+
+  // Node section.
+  const node = data.node || {};
+  const bc = node.blockchain || {};
+  const net = node.network || {};
+  const idx = node.index || {};
+  const mp  = node.mempool || {};
+  const ibd = bc.initialblockdownload ? ' (IBD)' : '';
+  const verif = bc.verificationprogress != null ? (bc.verificationprogress * 100).toFixed(2) + '%' : '';
+  const txindex = idx.txindex
+    ? `synced=${idx.txindex.synced ? 'yes' : 'no'} best_height=${idx.txindex.best_block_height ?? '-'}`
+    : '(not enabled)';
+  _renderSyncTable('sync-node-table', [
+    ['Chain',                  chainLabel(bc.chain)],
+    ['Tip height',             (bc.blocks ?? '-') + ibd],
+    ['Headers',                bc.headers ?? '-'],
+    ['Verification progress',  verif],
+    ['Best block hash',        bc.bestblockhash ? `<span class="hash-full">${bc.bestblockhash}</span>` : '-'],
+    ['Connections',            net.connections ?? '-'],
+    ['txindex',                txindex],
+    ['Mempool size',           (mp.size ?? '-') + ' tx (' + (mp.bytes ?? '-') + ' bytes)'],
+  ]);
+
+  // liboyoltc section.
+  const o = data.oyoltc || {};
+  _renderSyncTable('sync-oyoltc-table', [
+    ['Network',                  chainLabel(o.network)],
+    ['Tip height',               o.tip_height ?? '-'],
+    ['Tip hash',                 o.tip_hash ? `<span class="hash-full">${o.tip_hash}</span>` : '-'],
+    ['Rollback window',          o.rollback_window ?? '-'],
+    ['Max reorg depth',          o.max_reorg_depth ?? '-'],
+    ['Blocks cached',            o.blocks_cached ?? '-'],
+    ['Addresses tracked',        o.addresses_tracked ?? '-'],
+    ['Track mempool',            o.track_mempool ? 'yes' : 'no'],
+    ['Mempool tx (ours)',        o.mempool_size ?? '-'],
+    ['Mempool tx (seen, foreign)', o.mempool_seen_not_ours ?? '-'],
+    ['MWEB pending outputs',     o.mweb_pending_outputs ?? '-'],
+    ['MWEB pending spends',      o.mweb_pending_spends ?? '-'],
+    ['MWEB UTXO index size',     o.mweb_utxo_index_size ?? '-'],
+  ]);
+
+  // UTXO mirrors: one line per side (Regular = canonical LTC, MWEB),
+  // shown as unspent / total outputs — the journal keeps spent rows, so the
+  // dimmed total is >= the live unspent count.
+  const um = (o.utxo_mirror) || {};
+  const utxoCell = (s) => s
+    ? `${s.unspent ?? '-'} <span style="color:var(--dim);">/ ${s.total ?? '-'}</span>`
+    : '-';
+  _renderSyncTable('sync-utxomirror-table',
+    um.error
+      ? [['Error', um.error]]
+      : [
+          ['Regular UTXOs', utxoCell(um.regular)],
+          ['MWEB UTXOs',    utxoCell(um.mweb)],
+          ['Synced height', um.synced_height ?? '-'],
+          // ETA lives here (was the Regtest tab) — mirror tip vs node tip.
+          ['Sync status',   engineSyncText(bc.blocks ?? 0, o.tip_height ?? 0)],
+        ]);
+
+  // OYO wallets summary + per-wallet.
+  const ws = data.wallets || {};
+  const byKind = ws.by_kind || {};
+  const kindRow = Object.entries(byKind).map(([k, v]) => `${k}=${v}`).join(', ') || '-';
+  _renderSyncTable('sync-wallets-table', [
+    ['OYO wallets',         ws.count ?? 0],
+    ['By kind',             kindRow],
+    ['Total addresses',     ws.total_addresses ?? 0],
+    ['Total UTXOs',         ws.total_utxos ?? 0],
+    ['Total confirmed',     fmtLTC((ws.total_confirmed_sat || 0) / 1e8) + ' LTC'],
+    ['Total pending in',    fmtLTC((ws.total_pending_in_sat || 0) / 1e8) + ' LTC'],
+  ]);
+
+  const entries = Array.isArray(ws.entries) ? ws.entries : [];
+  $('#sync-wallets-list').innerHTML = entries.length === 0
+    ? '<div style="color:var(--dim);padding:8px 0;">No OYO wallets registered.</div>'
+    : '<table style="margin-top:8px;"><thead><tr><th>Name</th><th>Kind</th><th>Addrs</th><th>UTXOs</th><th>Confirmed</th><th>Pending in</th></tr></thead><tbody>'
+      + entries.map(e => `<tr>
+          <td><span class="link" onclick="navigate('wallet/${encodeURIComponent(e.name)}')">${e.name}</span></td>
+          <td>${e.kind}</td>
+          <td>${e.address_count}</td>
+          <td>${e.utxo_count}</td>
+          <td>${fmtLTC((e.confirmed_sat || 0) / 1e8)} LTC</td>
+          <td>${fmtLTC((e.pending_in_sat || 0) / 1e8)} LTC</td>
+        </tr>`).join('') + '</tbody></table>';
+}
+
+async function refreshMempool() {
+  const data = await api('mempool');
+  if (!data) return;
+  const entries = Object.entries(data);
+  const tbody = $('#mempool-table');
+  const empty = $('#mempool-empty');
+  if (entries.length === 0) { tbody.innerHTML = ''; empty.style.display = 'block'; return; }
+  empty.style.display = 'none';
+  tbody.innerHTML = entries.map(([txid, info]) =>
+    `<tr><td><span class="hash-full link" onclick="navigate('tx/${txid}')">${txid}</span></td><td>${formatSize(info.vsize || info.size)}</td><td>${info.fees ? info.fees.base : info.fee} LTC</td><td>${formatTime(info.time)}</td></tr>`
+  ).join('');
+}
+
+// ============================================================
+// Peers
+// ============================================================
+async function refreshPeers() {
+  const data = await api('peers');
+  if (!data) return;
+  const tbody = $('#peers-table');
+  const empty = $('#peers-empty');
+  if (!data.length) { tbody.innerHTML = ''; empty.style.display = 'block'; return; }
+  empty.style.display = 'none';
+  tbody.innerHTML = data.map(p =>
+    `<tr><td>${p.id}</td><td><span class="copyable" data-copy="${p.addr}">${p.addr}</span></td><td>${cleanVersion(p.subver)}</td><td>${p.synced_headers || '-'}</td><td>${p.pingtime ? (p.pingtime * 1000).toFixed(0) + 'ms' : '-'}</td></tr>`
+  ).join('');
+}
+
+// ============================================================
+// Regtest
+// ============================================================
+async function refreshRegtest() {
+  const data = await api('info');
+  if (!data) return;
+  const bc = data.blockchain;
+  const nodeH = bc.blocks;
+  const engH = (data.engine && data.engine.tip_height != null) ? data.engine.tip_height : null;
+  let syncHtml = stat('Node height', nodeH);
+  if (engH != null) {
+    syncHtml += stat('Engine height', engH) +
+      stat('Engine sync', engineSyncText(nodeH, engH));
+  }
+  $('#regtest-info').innerHTML =
+    stat('Chain', chainLabel(bc.chain)) + syncHtml + stat('Difficulty', fmtDifficulty(bc.difficulty));
+  // Mining (generatetoaddress) exists only on regtest.
+  const mc = $('#mine-card');
+  if (mc) mc.style.display = (bc.chain === 'regtest') ? '' : 'none';
+}
+
+// ============================================================
+// Refresh
+// ============================================================
+function refresh() {
+  const active = $('.tab.active')?.dataset?.tab;
+  refreshHeaderInfo();
+  refreshQueueBadge();   // pending counter visible from any tab
+  if (active === 'wallet') {
+    if (currentWallet) refreshWalletData();
+    else refreshWalletList();
+  }
+  if (active === 'queue') loadQueue();
+  if (active === 'explorer') loadRecentBlocks();
+  if (active === 'syncing') refreshSyncing();
+  if (active === 'mempool') refreshMempool();
+  if (active === 'peers') refreshPeers();
+  if (active === 'regtest') refreshRegtest();
+}
+
+// ============================================================
+// Queue tab
+// ============================================================
+
+// Load + render the global queue. Status badges:
+//   pending  — awaiting manual /run or scheduled_at firing
+//   running  — executor picked it up (rare in UI; window is short)
+//   done     — broadcast accepted, tx_id populated
+//   failed   — build or broadcast rejected; error populated
+//
+// Filter dropdown narrows by wallet name (server-side via ?wallet=);
+// bulk-remove buttons appear when there's at least one done / failed
+// entry across the unfiltered queue. Caller for refresh from the
+// global ticker just calls loadQueue() — the function reads its own
+// inputs so refresh + manual click + auto-refresh share one path.
+// Selected wallet for the filter dropdown. Empty = "All wallets".
+let _queueFilterWallet = '';
+
+async function loadQueue() {
+  const filter = _queueFilterWallet;
+  const url = filter ? `queue?wallet=${encodeURIComponent(filter)}` : 'queue';
+  const [filteredTasks, allTasks] = await Promise.all([
+    api(url),
+    filter ? api('queue') : Promise.resolve(null),
+  ]);
+  const tbody = $('#queue-rows');
+  const table = $('#queue-table');
+  const empty = $('#queue-empty');
+  if (!tbody || !table || !empty) return;
+
+  // The dropdown is populated off the unfiltered queue so wallets
+  // with no current tasks fall off and the menu stays meaningful.
+  populateWalletFilter(allTasks || filteredTasks || [], filter);
+
+  // Bulk-remove visibility tracks the FULL queue (not the filtered
+  // view) so a user clearing only the visible filter still sees the
+  // overall hygiene affordance.
+  const total = allTasks || filteredTasks || [];
+  const hasDone = total.some(t => t.status === 'done');
+  const hasFailed = total.some(t => t.status === 'failed');
+  const elDone = $('#queue-clear-done');
+  const elFailed = $('#queue-clear-failed');
+  if (elDone) elDone.style.display = hasDone ? '' : 'none';
+  if (elFailed) elFailed.style.display = hasFailed ? '' : 'none';
+
+  const tasks = filteredTasks || [];
+  if (tasks.length === 0) {
+    table.style.display = 'none';
+    empty.style.display = '';
+    empty.textContent = filter ? `No tasks for ${filter}` : 'Queue is empty';
+    tbody.innerHTML = '';
+    return;
+  }
+  table.style.display = '';
+  empty.style.display = 'none';
+  tbody.innerHTML = tasks.map(renderQueueRow).join('');
+}
+
+// Pending-count badge next to the Queue tab label. Visible from any
+// tab, refreshed on the global 5s ticker. Hidden when zero so the
+// nav stays clean.
+async function refreshQueueBadge() {
+  const tasks = await api('queue');
+  const badge = $('#queue-tab-badge');
+  if (!badge) return;
+  if (!tasks) { badge.style.display = 'none'; return; }
+  const pending = tasks.filter(t => t.status === 'pending' || t.status === 'running').length;
+  if (pending === 0) {
+    badge.style.display = 'none';
+    badge.textContent = '';
+  } else {
+    badge.style.display = '';
+    badge.textContent = String(pending);
+  }
+}
+
+// Render the wallet filter menu. Drops the previous selection if the
+// wallet has no remaining tasks (fallback to "All wallets").
+function populateWalletFilter(tasks, currentValue) {
+  const menu = $('#queue-filter-menu');
+  const label = $('#queue-filter-label');
+  if (!menu || !label) return;
+  const wallets = Array.from(new Set(tasks.map(t => t.wallet))).sort();
+  if (currentValue && !wallets.includes(currentValue)) {
+    _queueFilterWallet = '';
+    currentValue = '';
+  }
+  const items = ['<div class="dropdown-item" onclick="setQueueFilter(\'\')" data-active="' + (!currentValue) + '">All wallets</div>']
+    .concat(wallets.map(w => `<div class="dropdown-item" onclick="setQueueFilter('${escapeAttr(w)}')" data-active="${currentValue === w}">${escapeHTML(w)}</div>`));
+  menu.innerHTML = items.join('');
+  label.textContent = currentValue || 'All wallets';
+}
+
+function escapeAttr(s) {
+  return String(s || '').replace(/'/g, "\\'");
+}
+
+function toggleQueueFilter() {
+  const menu = $('#queue-filter-menu');
+  if (!menu) return;
+  menu.style.display = menu.style.display === 'none' ? '' : 'none';
+}
+
+function setQueueFilter(name) {
+  _queueFilterWallet = name;
+  const menu = $('#queue-filter-menu');
+  if (menu) menu.style.display = 'none';
+  loadQueue();
+}
+
+// Click outside the dropdown closes it.
+document.addEventListener('click', (e) => {
+  const dd = $('#queue-filter-dropdown');
+  if (!dd) return;
+  if (!dd.contains(e.target)) {
+    const menu = $('#queue-filter-menu');
+    if (menu) menu.style.display = 'none';
+  }
+});
+
+// Bulk-remove every entry of the given status, then re-render.
+// Parallel DELETEs keep the window short enough that the global 5s
+// ticker can't render a half-cleared list mid-loop.
+async function queueRemoveBulk(status) {
+  if (status !== 'done' && status !== 'failed') return;
+  if (!confirm(`Remove all ${status} tasks from the queue?`)) return;
+  const tasks = await api('queue');
+  if (!tasks) return;
+  const targets = tasks.filter(t => t.status === status);
+  await Promise.all(targets.map(t => api(`queue/${t.id}`, { method: 'DELETE' })));
+  notify(`Removed ${targets.length} ${status} task(s)`);
+  loadQueue();
+}
+
+function renderQueueRow(t) {
+  const recipient = t.outputs && t.outputs.length
+    ? (t.outputs.length === 1
+        ? `<span class="copyable" data-copy="${t.outputs[0].address}">${shortAddr(t.outputs[0].address)}</span>`
+        : `${t.outputs.length} recipients`)
+    : (t.to ? `<span class="copyable" data-copy="${t.to}">${shortAddr(t.to)}</span>` : '—');
+  const totalSat = t.outputs && t.outputs.length
+    ? t.outputs.reduce((a, o) => a + (o.amount_sat || 0), 0)
+    : (t.amount_sat || 0);
+  const amount = t.send_all
+    ? '(send all)'
+    : `${fmtLTC(totalSat / 1e8)} LTC`;
+  const fee = t.fee_rate_sat_per_vb ? `${t.fee_rate_sat_per_vb} sat/vB` : 'auto';
+  const schedule = t.scheduled_at
+    ? new Date(t.scheduled_at).toLocaleString()
+    : 'manual';
+  const badge = queueStatusBadge(t);
+  const actions = [];
+  if (t.status === 'pending') {
+    actions.push(`<button class="btn btn-sm" style="font-size:11px;" onclick="queueRunNow('${t.id}')">Broadcast now</button>`);
+  }
+  if (t.status === 'done' && t.tx_id) {
+    actions.push(`<button class="btn btn-sm" style="font-size:11px;background:var(--border);color:var(--text);" onclick="navigate('tx/${t.tx_id}')">View tx</button>`);
+  }
+  actions.push(`<button class="btn btn-sm" style="font-size:11px;background:var(--border);color:var(--dim);" onclick="queueRemove('${t.id}')" title="Remove from queue">Remove</button>`);
+  return `<tr onclick="queueShowDetail('${t.id}')" style="cursor:pointer;">
+    <td>${escapeHTML(t.wallet)}</td>
+    <td>${recipient}</td>
+    <td>${amount}</td>
+    <td style="font-size:11px;color:var(--dim);">${fee}</td>
+    <td style="font-size:11px;color:var(--dim);">${schedule}</td>
+    <td>${badge}${t.error ? `<div style="font-size:10px;color:var(--red);margin-top:2px;">${escapeHTML(t.error)}</div>` : ''}</td>
+    <td onclick="event.stopPropagation();" style="white-space:nowrap;">${actions.join(' ')}</td>
+  </tr>`;
+}
+
+function queueStatusBadge(t) {
+  const colors = {
+    pending: 'background:rgba(180,180,180,0.2);color:var(--text);',
+    running: 'background:rgba(80,140,255,0.25);color:var(--text);',
+    done:    'background:rgba(80,200,120,0.2);color:var(--text);',
+    failed:  'background:rgba(220,80,80,0.25);color:var(--red);',
+  };
+  const style = colors[t.status] || colors.pending;
+  return `<span style="${style}font-size:10px;padding:2px 6px;border-radius:3px;">${t.status}</span>`;
+}
+
+function shortAddr(a) {
+  if (!a || a.length < 16) return a || '';
+  return a.slice(0, 8) + '…' + a.slice(-6);
+}
+function escapeHTML(s) {
+  return String(s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);
+}
+
+async function queueRunNow(id) {
+  const data = await api(`queue/${id}/run`, { method: 'POST' });
+  if (data) {
+    if (data.status === 'done') notify('Broadcast: ' + (data.tx_id || data.id));
+    else notify('Run finished: ' + data.status);
+    loadQueue();
+  }
+}
+
+async function queueRemove(id) {
+  const data = await api(`queue/${id}`, { method: 'DELETE' });
+  if (data) {
+    notify('Removed from queue');
+    loadQueue();
+  }
+}
+
+async function queueShowDetail(id) {
+  const t = await api(`queue/${id}`);
+  if (!t) return;
+  const lines = [];
+  lines.push(field('ID', `<span class="copyable" data-copy="${t.id}">${t.id}</span>`));
+  lines.push(field('Wallet', escapeHTML(t.wallet)));
+  lines.push(field('Status', queueStatusBadge(t)));
+  if (t.outputs && t.outputs.length) {
+    lines.push(field('Outputs', t.outputs.map(o =>
+      `<div><span class="copyable" data-copy="${o.address}" style="font-size:11px;word-break:break-all;">${o.address}</span> — ${fmtLTC(o.amount_sat / 1e8)} LTC</div>`
+    ).join('')));
+  } else if (t.to) {
+    lines.push(field('To', `<span class="copyable" data-copy="${t.to}" style="font-size:11px;word-break:break-all;">${t.to}</span>`));
+    lines.push(field('Amount', t.send_all ? '(send all)' : `${fmtLTC((t.amount_sat || 0) / 1e8)} LTC`));
+  }
+  if (t.fee_rate_sat_per_vb) lines.push(field('Fee rate', `${t.fee_rate_sat_per_vb} sat/vB`));
+  if (t.inputs && t.inputs.length) {
+    lines.push(field('Manual inputs', t.inputs.map(i =>
+      i.commitment ? `<div style="font-size:11px;">commitment ${i.commitment}</div>` : `<div style="font-size:11px;">${i.txid}:${i.vout}</div>`
+    ).join('')));
+  }
+  lines.push(field('Created', new Date(t.created_at).toLocaleString()));
+  if (t.scheduled_at) lines.push(field('Scheduled', new Date(t.scheduled_at).toLocaleString()));
+  if (t.executed_at) lines.push(field('Executed', new Date(t.executed_at).toLocaleString()));
+  if (t.tx_id) lines.push(field('TXID', `<span class="copyable" data-copy="${t.tx_id}" style="font-size:11px;word-break:break-all;">${t.tx_id}</span>`));
+  if (t.error) lines.push(field('Error', `<span style="color:var(--red);">${escapeHTML(t.error)}</span>`));
+  showModal('Queue task', lines.join('') + `
+    <div style="display:flex;gap:8px;margin-top:16px;">
+      ${t.status === 'pending' ? `<button class="btn danger" onclick="hideModal();queueRunNow('${t.id}')">Broadcast now</button>` : ''}
+      <button class="btn btn-sm" style="background:var(--border);color:var(--text);" onclick="hideModal();queueRemove('${t.id}')">Remove</button>
+      <button class="btn btn-sm" style="background:var(--border);color:var(--text);" onclick="hideModal()">Close</button>
+    </div>
+  `);
+}
+
+async function mineBlocks(n) {
+  const addr = $('#mine-address')?.value?.trim() || '';
+  const url = addr ? `mine?count=${n}&address=${encodeURIComponent(addr)}` : `mine?count=${n}`;
+  const data = await api(url, { method: 'POST' });
+  if (data) {
+    const actual = Array.isArray(data.blocks) ? data.blocks.length : 0;
+    notify(`Mined ${actual} block(s) to ${data.address}`);
+    refresh();
+  }
+}
+function mineCustomCount() { mineBlocks(parseInt($('#mine-count').value) || 1); }
+
+// ============================================================
+// Init
+// ============================================================
+(async function init() {
+  const oyo = await api('oyo');
+  if (oyo) {
+    oyoSupported = !!oyo.oyo;
+    oyoFeatures = Array.isArray(oyo.features) ? oyo.features : [];
+  }
+  handleRoute();
+  $('.container').classList.add('ready');
+  setInterval(refresh, 5000);
+})();
+</script>
+</body>
+</html>

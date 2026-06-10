@@ -1,0 +1,12 @@
+{
+  "listen": "127.0.0.1:8881",
+  "rpc": "http://127.0.0.1:19443",
+  "rpcuser": "oyo",
+  "rpcpassword": "oyo",
+  "webuser": "",
+  "webpassword": "",
+  "network": "regtest",
+  "data_dir": "./test-data",
+  "track_mempool": true,
+  "native_block_parse": true
+}
