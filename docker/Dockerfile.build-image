@@ -1,0 +1,47 @@
+FROM ubuntu:20.04@sha256:8feb4d8ca5354def3d8fce243717141ce31e2c428701f6682bd2fafe15388214
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    automake \
+    autotools-dev \
+    bison \
+    bsdmainutils \
+    build-essential \
+    ca-certificates \
+    cmake \
+    curl \
+    gperf \
+    git \
+    libboost-filesystem-dev \
+    libboost-system-dev \
+    libboost-test-dev \
+    libboost-thread-dev \
+    libevent-dev \
+    libfmt-dev \
+    libsqlite3-dev \
+    libssl-dev \
+    libtool \
+    libzmq3-dev \
+    patch \
+    pkg-config \
+    python3 \
+    python3-dev \
+    python3-pip \
+    rsync \
+    wget \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY litecoin-oyo-fork/contrib/install_db4.sh /tmp/install_db4.sh
+RUN chmod +x /tmp/install_db4.sh \
+    && sed -i 's/curl --insecure --retry 5/curl --fail --location --insecure --retry 5 --connect-timeout 30 --max-time 300/' /tmp/install_db4.sh \
+    && sed -i '/CONFIG_GUESS_URL=/,/http_get "${CONFIG_SUB_URL}" dist\/config.sub "${CONFIG_SUB_HASH}"/c\cp /usr/share/misc/config.guess dist/config.guess\ncp /usr/share/misc/config.sub dist/config.sub' /tmp/install_db4.sh \
+    && /tmp/install_db4.sh /opt \
+    && rm /tmp/install_db4.sh
+
+RUN pip3 install --no-cache-dir \
+    blake3==1.0.8 \
+    litecoin_scrypt==1.0.2 \
+    pyzmq==27.1.0
+
+WORKDIR /work
