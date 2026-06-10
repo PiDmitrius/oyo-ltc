@@ -44,4 +44,15 @@ RUN pip3 install --no-cache-dir \
     litecoin_scrypt==1.0.2 \
     pyzmq==27.1.0
 
+# Prebuilt depends/ for the portable static litecoind (scripts/02).
+# config.site bakes absolute paths at build time, so the prefix must live
+# at a fixed image path; only the built prefix is kept — work trees,
+# source tarballs and stamp dirs are pruned from the layer.
+COPY litecoin-oyo-fork/depends /opt/litecoin-depends/depends
+RUN make -C /opt/litecoin-depends/depends HOST=x86_64-pc-linux-gnu -j"$(nproc)" NO_QT=1 \
+    && rm -rf /opt/litecoin-depends/depends/work \
+              /opt/litecoin-depends/depends/sources \
+              /opt/litecoin-depends/depends/built \
+    && test -f /opt/litecoin-depends/depends/x86_64-pc-linux-gnu/share/config.site
+
 WORKDIR /work
