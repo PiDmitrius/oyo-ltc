@@ -1,0 +1,48 @@
+# litecoin-oyo: minimal node runtime image.
+#
+# Universal image — works for regtest, testnet, mainnet. Network, config,
+# and data are external concerns. The litecoind inside is the PORTABLE
+# static binary from scripts/02 (the same one the release archive ships),
+# so no shared libraries need to be copied in.
+#
+# Build:  scripts/06-build-node-image.sh
+#
+# Run examples:
+#   Regtest:  docker run -d -p 19443:19443 litecoin-oyo -regtest
+#   Mainnet:  docker run -d -p 9332:9332 -p 9333:9333 -v oyo-data:/data litecoin-oyo
+
+FROM ubuntu:20.04
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY litecoind /usr/local/bin/
+
+RUN mkdir -p /data
+VOLUME /data
+
+RUN echo '\
+server=1\n\
+txindex=1\n\
+rest=1\n\
+rpcuser=oyo\n\
+rpcpassword=oyo\n\
+fallbackfee=0.0002\n\
+\n\
+[main]\n\
+rpcallowip=0.0.0.0/0\n\
+rpcbind=0.0.0.0\n\
+\n\
+[test]\n\
+rpcallowip=0.0.0.0/0\n\
+rpcbind=0.0.0.0\n\
+\n\
+[regtest]\n\
+rpcallowip=0.0.0.0/0\n\
+rpcbind=0.0.0.0\n\
+' > /data/litecoin.conf
+
+EXPOSE 9332 9333 19332 19335 19443 19444
+
+ENTRYPOINT ["litecoind", "-datadir=/data", "-printtoconsole"]
