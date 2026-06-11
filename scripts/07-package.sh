@@ -11,9 +11,14 @@
 #       └─ web/oyo-web     (stripped, static libcrypto — same baseline deps)
 #
 # Assemble-only: expects the artifacts to be already built —
-#   scripts/02-build-litecoind.sh   litecoind in the oyo-ltc-node-static volume
+#   litecoin-oyo image              the tested portable litecoind
+#                                   (scripts/06 or scripts/ci-ensure.sh)
 #   scripts/04-build-liboyoltc.sh   cgo bundle (input of scripts/05)
 #   scripts/05-build-oyo-web.sh     dist/out/oyo-web
+#
+# litecoind is taken from the node runtime image, not a build volume: the
+# image exists on cache hits too, and it is the exact binary the e2e suite
+# ran against.
 #
 # Usage:  ./scripts/07-package.sh [version]    (version defaults to git describe)
 #
@@ -21,8 +26,7 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 ROOT_DIR="$(pwd)"
-IMAGE=litecoin-oyo-build
-STATIC_VOLUME=oyo-ltc-node-static
+NODE_IMAGE=litecoin-oyo
 
 VERSION="${1:-$(git describe --tags --always --dirty 2>/dev/null || echo dev)}"
 NAME="oyo-portable-$VERSION"
@@ -36,9 +40,8 @@ test -f dist/out/oyo-web || {
   echo "no dist/out/oyo-web — run scripts/05-build-oyo-web.sh first" >&2
   exit 1
 }
-docker run --rm -v "$STATIC_VOLUME:/work:ro" --entrypoint /bin/bash "$IMAGE" \
-  -c 'test -x /work/litecoin-oyo-fork/src/litecoind' || {
-  echo "no litecoind in $STATIC_VOLUME — run scripts/02-build-litecoind.sh first" >&2
+docker image inspect "$NODE_IMAGE:latest" >/dev/null 2>&1 || {
+  echo "no $NODE_IMAGE image — run scripts/06-build-node-image.sh (or scripts/ci-ensure.sh) first" >&2
   exit 1
 }
 echo "   artifacts present"
@@ -48,10 +51,10 @@ STAGE="$(mktemp -d)"
 trap 'rm -rf "$STAGE"' EXIT
 PKG="$STAGE/$NAME"
 mkdir -p "$PKG/node" "$PKG/web"
-# litecoind: copy out of the static volume and strip inside the container
+# litecoind: copy out of the node image (already stripped by scripts/06)
 docker run --rm -u "$(id -u):$(id -g)" \
-  -v "$STATIC_VOLUME:/work:ro" -v "$PKG/node:/out" --entrypoint /bin/bash "$IMAGE" \
-  -c 'cp /work/litecoin-oyo-fork/src/litecoind /out/litecoind && strip /out/litecoind && chmod +x /out/litecoind'
+  -v "$PKG/node:/out" --entrypoint /bin/bash "$NODE_IMAGE" \
+  -c 'cp /usr/local/bin/litecoind /out/litecoind && chmod +x /out/litecoind'
 install -m 0755 dist/out/oyo-web "$PKG/web/oyo-web"
 install -m 0755 dist/oyo.sh      "$PKG/oyo.sh"
 install -m 0644 dist/README.md   "$PKG/README.md"
