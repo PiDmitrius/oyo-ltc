@@ -197,9 +197,34 @@ struct Utxo {
     std::string spent_pending_txid;              // which mempool tx spends this utxo
     // True for vouts of the block's HogEx tx (peg-out materialisation):
     // the node enforces PEGOUT_MATURITY (6) blocks before such vouts can
-    // be spent. Coin selection filters these until tip - height >= 6.
+    // be spent. Coin selection filters these until matured.
     bool        is_pegout_output     = false;
+    // True for vouts of the block's coinbase tx: the node enforces
+    // COINBASE_MATURITY (100) blocks before they can be spent.
+    bool        is_coinbase          = false;
 };
+
+// Returns true when a confirmed UTXO is still inside its maturity window
+// (peg-out or coinbase). Node consensus checks `nSpendHeight - coin.nHeight
+// >= MATURITY` (consensus/tx_verify.cpp); mempool acceptance uses
+// nSpendHeight = tip+1 (the next block being assembled), so the predicate is
+// `(tip+1) - u.height >= M` <=> `(tip - u.height) >= M - 1`. Without a tip
+// yet (cold start) UTXOs are treated as mature.
+bool IsImmatureUtxoLocked(const Utxo& u, int64_t tip_height) {
+    if (tip_height < 0) return false;
+    if (u.is_pegout_output && (tip_height - u.height) < (kPegoutMaturity - 1)) return true;
+    if (u.is_coinbase && (tip_height - u.height) < (kCoinbaseMaturity - 1)) return true;
+    return false;
+}
+
+// Returns true when a UTXO is currently spendable. Filters out
+// unconfirmed / spent / pending-spent UTXOs and confirmed ones still
+// inside a maturity window. Reported immature_sat uses the same
+// predicate, so it always equals what coin selection filters out.
+bool IsSpendableUtxoLocked(const Utxo& u, int64_t tip_height) {
+    if (u.spent || u.spent_pending || !u.confirmed) return false;
+    return !IsImmatureUtxoLocked(u, tip_height);
+}
 
 struct Address {
     std::string kind;         // "p2wpkh"
@@ -222,6 +247,7 @@ struct BlockEvent {
     int64_t     amount_sat;   // for ADD: from vout; for SPEND: 0 (taken from addr.utxos)
     std::string event_tx;     // txid of THIS tx — for ADD == key.txid, for SPEND = spender
     bool        is_pegout_output = false;  // ADD-only: HogEx vout that needs PEGOUT_MATURITY blocks before spend
+    bool        is_coinbase      = false;  // ADD-only: coinbase vout that needs COINBASE_MATURITY blocks before spend
 };
 
 struct Block {
@@ -1452,7 +1478,8 @@ bool AddUtxoLocked(Address& addr,
                    int64_t amount_sat,
                    int64_t height,
                    bool confirmed,
-                   bool is_pegout_output = false) {
+                   bool is_pegout_output = false,
+                   bool is_coinbase = false) {
     if (addr.utxos.count(key)) return false;
     Utxo u;
     u.txid = key.txid;
@@ -1461,6 +1488,7 @@ bool AddUtxoLocked(Address& addr,
     u.height = confirmed ? height : 0;
     u.confirmed = confirmed;
     u.is_pegout_output = is_pegout_output;
+    u.is_coinbase = is_coinbase;
     addr.utxos.emplace(key, std::move(u));
     if (confirmed) {
         addr.confirmed_sat += amount_sat;
@@ -2145,6 +2173,11 @@ void ParseTxEvents(const UniValue& tx, std::vector<BlockEvent>& out,
     if (!this_txid_v.isStr()) return;
     std::string this_txid = LowerHex(this_txid_v.get_str());
     const UniValue& vins = tx["vin"];
+    // The coinbase is the tx whose first input carries a "coinbase" field;
+    // its vouts need COINBASE_MATURITY blocks before they can be spent.
+    // Mempool txs never carry the field, so the mempool caller gets false.
+    const bool is_coinbase_tx = vins.isArray() && vins.size() >= 1 &&
+                                vins[0].isObject() && vins[0].exists("coinbase");
     if (vins.isArray()) {
         for (size_t vi = 0; vi < vins.size(); ++vi) {
             const UniValue& vin = vins[vi];
@@ -2188,6 +2221,7 @@ void ParseTxEvents(const UniValue& tx, std::vector<BlockEvent>& out,
         // HogEx vout[0] is the passthrough (not a peg-out); vout[1..] are
         // the peg-out materialisations subject to PEGOUT_MATURITY.
         e.is_pegout_output = is_hogex_tx && n_idx > 0;
+        e.is_coinbase = is_coinbase_tx;
         out.push_back(std::move(e));
     }
 }
@@ -2413,9 +2447,15 @@ void ApplyEventLocked(OyoChainImpl& c, const BlockEvent& e, int64_t height) {
             //    with "premature spend of pegout".
             uit->second.is_pegout_output =
                 uit->second.is_pegout_output || e.is_pegout_output;
+            // Same carry for the coinbase marker (same rescan-before-sync
+            // case — a fresh rescan saved the utxo before block apply knew
+            // it came from a coinbase).
+            uit->second.is_coinbase =
+                uit->second.is_coinbase || e.is_coinbase;
         } else {
             AddUtxoLocked(addr, e.key, e.amount_sat, height,
-                           /*confirmed=*/true, e.is_pegout_output);
+                           /*confirmed=*/true, e.is_pegout_output,
+                           e.is_coinbase);
         }
     } else {
         SpendUtxoLocked(addr, e.key, height);
@@ -3032,7 +3072,7 @@ UniValue WalletStatusJsonLocked(const OyoWalletImpl& w) {
 
     int64_t pending_in       = 0;
     int64_t pending_out      = 0;
-    int64_t immature_pegout  = 0;  // confirmed peg-out vouts within PEGOUT_MATURITY
+    int64_t immature         = 0;  // confirmed peg-out / coinbase vouts inside maturity
     // Per-address immature totals — used below in the addresses[] vout so
     // each row can subtract its share from "spendable" and surface the
     // immature portion separately. Same predicate as IsSpendableUtxoLocked
@@ -3042,30 +3082,28 @@ UniValue WalletStatusJsonLocked(const OyoWalletImpl& w) {
         if (!b) continue;
         pending_in  += b->addr->pending_in_sat;
         pending_out += b->addr->pending_out_sat;
-        if (c.tip_height >= 0) {
-            int64_t addr_immature = 0;
-            for (const auto& kv : b->addr->utxos) {
-                const Utxo& u = kv.second;
-                if (!u.confirmed || u.spent || u.spent_pending) continue;
-                if (!u.is_pegout_output) continue;
-                if ((c.tip_height - u.height) < (kPegoutMaturity - 1)) {
-                    immature_pegout += u.amount_sat;
-                    addr_immature   += u.amount_sat;
-                }
+        int64_t addr_immature = 0;
+        for (const auto& kv : b->addr->utxos) {
+            const Utxo& u = kv.second;
+            if (!u.confirmed || u.spent || u.spent_pending) continue;
+            if (IsImmatureUtxoLocked(u, c.tip_height)) {
+                immature      += u.amount_sat;
+                addr_immature += u.amount_sat;
             }
-            if (addr_immature > 0) per_addr_immature[b->index] = addr_immature;
         }
+        if (addr_immature > 0) per_addr_immature[b->index] = addr_immature;
     }
-    // available excludes immature peg-outs — they're confirmed but not yet
-    // spendable (node would reject premature spends with bad-txns-premature-
-    // spend-of-pegout). Mirrors node-wallet's `immature` accounting.
-    int64_t available = w.balance_sat - immature_pegout;
+    // available excludes immature peg-outs and coinbases — they're confirmed
+    // but not yet spendable (node would reject premature spends with
+    // bad-txns-premature-spend-of-{pegout,coinbase}). Mirrors node-wallet's
+    // `immature` accounting.
+    int64_t available = w.balance_sat - immature;
     if (available < 0) available = 0;
     root.pushKV("confirmed_sat",      w.balance_sat);
     root.pushKV("available_sat",      available);
     root.pushKV("pending_in_sat",     pending_in);
     root.pushKV("pending_out_sat",    pending_out);
-    root.pushKV("immature_sat",       immature_pegout);
+    root.pushKV("immature_sat",       immature);
 
     // Aggregate pending across canonical + MWEB sides for the summary
     // view's `net_pending` field — same shape node-wallet uses
@@ -3087,7 +3125,7 @@ UniValue WalletStatusJsonLocked(const OyoWalletImpl& w) {
     mine.pushKV("available",          double(available)       / double(kCoin));
     mine.pushKV("untrusted_pending",  double(total_pending_in)  / double(kCoin));
     mine.pushKV("outgoing_pending",   double(total_pending_out) / double(kCoin));
-    mine.pushKV("immature",           double(immature_pegout) / double(kCoin));
+    mine.pushKV("immature",           double(immature) / double(kCoin));
     mine.pushKV("net_pending",        net_pending);
     balances.pushKV("mine", mine);
     root.pushKV("balances", balances);
@@ -3108,8 +3146,9 @@ UniValue WalletStatusJsonLocked(const OyoWalletImpl& w) {
         ao.pushKV("confirmed_sat",   a.confirmed_sat);
         ao.pushKV("pending_in_sat",  a.pending_in_sat);
         ao.pushKV("pending_out_sat", a.pending_out_sat);
-        // immature_sat = portion of confirmed_sat tied up in peg-out
-        // vouts that haven't matured yet. Spendable = confirmed - immature.
+        // immature_sat = portion of confirmed_sat tied up in peg-out or
+        // coinbase vouts that haven't matured yet. Spendable = confirmed
+        // minus immature.
         // Frontend renders this separately so users see why their full
         // confirmed balance can't be spent.
         {
@@ -3131,6 +3170,7 @@ UniValue WalletStatusJsonLocked(const OyoWalletImpl& w) {
             uo.pushKV("amount_sat", u.amount_sat);
             uo.pushKV("height", u.height);
             uo.pushKV("confirmed", u.confirmed);
+            uo.pushKV("immature", IsImmatureUtxoLocked(u, c.tip_height));
             uo.pushKV("spent_pending", u.spent_pending);
             if (u.spent_pending) uo.pushKV("spent_pending_txid", u.spent_pending_txid);
             uo.pushKV("address", a.address);
@@ -3547,10 +3587,12 @@ void RunWalletRescanFromMirrorLocked(OyoOpImpl& op) {
                 UtxoKey k{ToHexLower(outpoint.data(), 32),
                           uint32_t(outpoint[32]) | (uint32_t(outpoint[33]) << 8) |
                           (uint32_t(outpoint[34]) << 16) | (uint32_t(outpoint[35]) << 24)};
-                bool is_pegout = (flags & RegularMirror::kFlagPegOut) != 0;
+                bool is_pegout   = (flags & RegularMirror::kFlagPegOut)   != 0;
+                bool is_coinbase = (flags & RegularMirror::kFlagCoinbase) != 0;
                 // Idempotent on an existing key (pending entry) — matches the
                 // scantxoutset path's AddUtxoLocked dup-key short-circuit.
-                AddUtxoLocked(a, k, amount, height, /*confirmed=*/true, is_pegout);
+                AddUtxoLocked(a, k, amount, height, /*confirmed=*/true,
+                              is_pegout, is_coinbase);
             });
         SetAddressDesyncLocked(a, false);
     }
@@ -4351,22 +4393,6 @@ void DispatchMwebSend(OyoOpImpl& op, const UniValue& env) {
 
 constexpr int64_t kP2WPKHDustSat            = 294;  // default min-relay dust for native segwit
 
-// Returns true when a UTXO is currently spendable. Filters out:
-//   * unconfirmed / spent / pending-spent (existing logic),
-//   * peg-out (HogEx vout) UTXOs not yet matured. Node enforces
-//     `nSpendHeight - coin.nHeight >= PEGOUT_MATURITY` (consensus/
-//     tx_verify.cpp:193). Mempool acceptance uses nSpendHeight=tip+1
-//     (the next block being assembled), so our spendability predicate
-//     is `(tip+1) - u.height >= 6` ⇔ `(tip - u.height) >= 5`.
-bool IsSpendableUtxoLocked(const Utxo& u, int64_t tip_height) {
-    if (u.spent || u.spent_pending || !u.confirmed) return false;
-    if (u.is_pegout_output && tip_height >= 0 &&
-        (tip_height - u.height) < (kPegoutMaturity - 1)) {
-        return false;
-    }
-    return true;
-}
-
 // Conservative vsize constants for fee estimation. Exact post-sign vsize
 // can be 1-2 vbytes lower (DER signature compaction) — we pay slightly
 // over min-relay rather than risk under-paying.
@@ -4898,8 +4924,7 @@ void FinalizeRegularSendOp(OyoOpImpl& op) {
                 ent.pushKV("address", b->addr->address);
                 ent.pushKV("binding_index", b->index);
                 ent.pushKV("status",
-                           uit->second.is_pegout_output && c.tip_height >= 0 &&
-                               (c.tip_height - uit->second.height) < (kPegoutMaturity - 1)
+                           IsImmatureUtxoLocked(uit->second, c.tip_height)
                                ? "immature"
                                : (uit->second.confirmed ? "confirmed" : "pending"));
                 inputs_arr.push_back(ent);
@@ -5392,8 +5417,7 @@ void FinalizeExtPegInOp(OyoOpImpl& op) {
                 ent.pushKV("address", b->addr->address);
                 ent.pushKV("binding_index", b->index);
                 ent.pushKV("status",
-                           uit->second.is_pegout_output && c.tip_height >= 0 &&
-                               (c.tip_height - uit->second.height) < (kPegoutMaturity - 1)
+                           IsImmatureUtxoLocked(uit->second, c.tip_height)
                                ? "immature"
                                : (uit->second.confirmed ? "confirmed" : "pending"));
                 inputs_arr.push_back(ent);

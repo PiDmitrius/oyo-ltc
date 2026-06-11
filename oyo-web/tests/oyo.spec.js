@@ -19,7 +19,7 @@
 //                                        reorg / unload-load)
 //   • OYO wallet matrix                 (regular/mweb/universal × send/
 //                                        receive paths, fee parity, tx-shape
-//                                        parity, peg-out maturity, slice 1-4
+//                                        parity, peg-out/coinbase maturity, slice 1-4
 //                                        multi-recipient + manual inputs,
 //                                        pre-broadcast modal)
 //   • Node wallet matrix                (node-HD sender × all 4 routing
@@ -3809,6 +3809,100 @@ test.describe('OYO wallet matrix', () => {
 
     await api(request, `wallet/delete?name=${M}`, { method: 'POST' }).catch(() => {});
     await api(request, `wallet/delete?name=${R}`, { method: 'POST' }).catch(() => {});
+  });
+
+  test('coinbase maturity: immature coinbase split out, never selected, matures after 100', async ({ request }) => {
+    // A wallet that mines directly to its own address holds coinbase
+    // UTXOs that need COINBASE_MATURITY (100) blocks before they can be
+    // spent. They must be reported as immature (not available) and coin
+    // selection must never pick them — otherwise the node rejects the
+    // broadcast with bad-txns-premature-spend-of-coinbase. Found live on
+    // the v0.1.0-rc2 wrokit stand: a freshly mined-to wallet showed the
+    // whole balance as available and every send bounced off the node.
+    const W = 'mtx-cbmat-' + stamp();
+    expect((await api(request, `wallet/create?name=${W}&type=regular&seed=${REG_SEED_PREFIX}${stamp()}&address_count=3`, { method: 'POST' })).ok()).toBeTruthy();
+    const wAddr = (await (await api(request, `wallet/info?name=${W}`)).json()).addresses[0].address;
+
+    // Mine 2 blocks straight to the wallet — two young coinbases.
+    await api(request, `mine?count=2&address=${wAddr}`, { method: 'POST' });
+    await api(request, 'chain/sync', { method: 'POST' });
+
+    let info = await (await api(request, `wallet/info?name=${W}`)).json();
+    // Subsidy depends on how deep the suite chain is (regtest halves
+    // every 150 blocks) — derive expectations from the reported UTXOs
+    // instead of hardcoding amounts.
+    expect(info.utxo_count).toBe(2);
+    const total = info.utxos.reduce((s, u) => s + u.amount_sat, 0);
+    expect(total).toBeGreaterThan(0);
+    for (const u of info.utxos) {
+      expect(u.confirmed).toBe(true);
+      expect(u.immature).toBe(true);
+    }
+    expect(info.confirmed_sat).toBe(total);
+    expect(info.immature_sat).toBe(total);   // everything immature
+    expect(info.available_sat).toBe(0);       // nothing spendable
+
+    // Per-address breakdown carries the immature share too.
+    const addrs = await (await api(request, `wallet/addresses?name=${W}`)).json();
+    const row = (addrs.addresses || []).find(a => a.address === wAddr);
+    expect(row).toBeTruthy();
+    expect(row.immature_sat).toBe(total);
+
+    // Premature spend must be refused by coin selection (engine-side
+    // insufficient-funds), never reach the node's coinbase check.
+    const dest = (await (await api(request, 'wallet/newaddress?name=test-e2e&type=bech32', { method: 'POST' })).json()).address;
+    const premature = await api(request, `wallet/send?name=${W}&to=${dest}&amount=0.0001`, { method: 'POST' });
+    expect(premature.ok()).toBeFalsy();
+    const reason = JSON.stringify(await premature.json().catch(() => ({})));
+    expect(reason).toContain('insufficient funds');
+    expect(reason).not.toContain('premature');
+
+    // Mine COINBASE_MATURITY blocks elsewhere — both coinbases mature.
+    await api(request, 'mine?count=100', { method: 'POST' });
+    await api(request, 'chain/sync', { method: 'POST' });
+    info = await (await api(request, `wallet/info?name=${W}`)).json();
+    expect(info.immature_sat).toBe(0);
+    expect(info.available_sat).toBe(total);
+
+    const ok = await (await api(request, `wallet/send?name=${W}&to=${dest}&amount=0.0001`, { method: 'POST' })).json();
+    expect(ok.status).toBe('sent');
+
+    await api(request, `wallet/delete?name=${W}`, { method: 'POST' }).catch(() => {});
+  });
+
+  test('coinbase maturity survives Unload→Load (mirror bootstrap)', async ({ request }) => {
+    // The forward block-walk tags coinbase vouts from the block itself;
+    // a wallet reopened via Load bootstraps from the persistent mirror
+    // instead, so the immature gate must come from the mirror's
+    // kFlagCoinbase row flag. Without that plumbing the reloaded wallet
+    // would show the coinbase as spendable.
+    const W = 'mtx-cbmatLoad-' + stamp();
+    expect((await api(request, `wallet/create?name=${W}&type=regular&seed=${REG_SEED_PREFIX}${stamp()}&address_count=3`, { method: 'POST' })).ok()).toBeTruthy();
+    const wAddr = (await (await api(request, `wallet/info?name=${W}`)).json()).addresses[0].address;
+
+    await api(request, `mine?count=1&address=${wAddr}`, { method: 'POST' });
+    await api(request, 'chain/sync', { method: 'POST' });
+
+    const before = await (await api(request, `wallet/info?name=${W}`)).json();
+    expect(before.utxo_count).toBe(1);
+    const total = before.utxos[0].amount_sat;
+    expect(before.immature_sat).toBe(total);
+    expect(before.available_sat).toBe(0);
+
+    expect((await api(request, `wallet/unload?name=${W}`, { method: 'POST' })).ok()).toBeTruthy();
+    expect((await api(request, `wallet/load?name=${W}`, { method: 'POST' })).ok()).toBeTruthy();
+
+    const after = await (await api(request, `wallet/info?name=${W}`)).json();
+    expect(after.confirmed_sat).toBe(total);
+    // CRITICAL — mirror bootstrap must carry the coinbase flag through.
+    expect(after.immature_sat).toBe(total);
+    expect(after.available_sat).toBe(0);
+
+    const dest = (await (await api(request, 'wallet/newaddress?name=test-e2e&type=bech32', { method: 'POST' })).json()).address;
+    const premature = await api(request, `wallet/send?name=${W}&to=${dest}&amount=0.0001`, { method: 'POST' });
+    expect(premature.ok()).toBeFalsy();
+
+    await api(request, `wallet/delete?name=${W}`, { method: 'POST' }).catch(() => {});
   });
 
   test('newaddress on synced regular wallet does NOT desync the wallet', async ({ request }) => {
