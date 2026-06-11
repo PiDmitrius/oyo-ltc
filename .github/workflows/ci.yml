@@ -11,6 +11,11 @@ permissions:
   contents: read
   packages: write
 
+# A newer push to the same ref supersedes the running build.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   ci:
     runs-on: ubuntu-latest
