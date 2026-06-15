@@ -3825,6 +3825,13 @@ test.describe('OYO wallet matrix', () => {
     await api(request, `wallet/delete?name=${R}`, { method: 'POST' }).catch(() => {});
   });
 
+  // Stochastic by design: it samples the random change-output position
+  // across N sends, so unlike the deterministic rest of the suite
+  // (playwright.config retries: 0) this one test gets retries — ~0.2% of runs
+  // draw a uniform sample and false-fail, and a retry re-rolls. Scoped here
+  // via a one-test wrapping describe (Playwright has no per-test retries arg).
+  test.describe('change-vout randomization (stochastic)', () => {
+  test.describe.configure({ retries: 2 });
   test('tx-shape parity: change vout position randomized across many sends', async ({ request }) => {
     // Send N times, observe whether change_vout is sometimes NOT the last
     // vout — the always-last fingerprint is what we want to remove. Since
@@ -3871,6 +3878,7 @@ test.describe('OYO wallet matrix', () => {
     expect(distinct.size).toBeGreaterThan(1);
 
     await api(request, `wallet/delete?name=${R}`, { method: 'POST' }).catch(() => {});
+  });
   });
 
   test('fee parity M→bech32 peg-out: rate override scales canonical fee linearly', async ({ request }) => {
