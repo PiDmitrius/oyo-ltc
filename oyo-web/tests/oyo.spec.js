@@ -904,10 +904,11 @@ test.describe('Frontend', () => {
     await expect(page.locator('.recipient-remove:visible')).toHaveCount(0);
   });
 
-  test('auto send: manual input picker selects UTXOs, shows chip, hides Max, clears (P2.2)', async ({ page }) => {
+  test('auto send: manual input picker selects UTXOs, shows chip, keeps Max usable, clears (P2.2)', async ({ page }) => {
     // Coin-control picker state machine (OYO-only):
     //   no selection      → "Pick inputs manually" link, Max visible
-    //   inputs selected    → summary chip, Max hidden
+    //   inputs selected    → summary chip, Max STILL visible (drains the
+    //                        pinned inputs for a single recipient)
     //   Clear              → back to the link, Max visible
     const wallet = 'test-oyo-e2e';
     await page.goto(`/#wallet/${wallet}`);
@@ -935,19 +936,185 @@ test.describe('Frontend', () => {
       await expect(page.locator('#picker-foot')).toContainText('2 selected');
     }
 
-    // Done → chip shows the count; Max button hidden while a manual
-    // selection is active (drain semantics ambiguous over a fixed subset).
+    // Done → chip shows the count; Max button stays visible (single
+    // recipient) — it now drains exactly the pinned inputs.
     await page.locator('#modal-body >> text=Done').click();
     await expect(page.locator('#modal-overlay.visible')).not.toBeVisible();
     await expect(page.locator('#send-coincontrol-summary')).toBeVisible();
     await expect(page.locator('#send-coincontrol-text')).toContainText('selected');
-    await expect(page.locator('#send-max-btn')).not.toBeVisible();
+    await expect(page.locator('#send-max-btn')).toBeVisible();
 
     // Clear → back to the link, Max returns.
     await page.locator('#send-coincontrol-summary >> text=Clear').click();
     await expect(page.locator('#send-coincontrol-summary')).not.toBeVisible();
     await expect(page.locator('#send-pick-link')).toBeVisible();
     await expect(page.locator('#send-max-btn')).toBeVisible();
+  });
+
+  test('coin-control: a pinned input spent out-of-band is reconciled away on reopen, count never inflates (bug #3)', async ({ page, request }) => {
+    // Field bug: after a send the picker kept a now-spent UTXO selected,
+    // so reopening and picking a fresh one showed "2 selected" — the stale
+    // one was still counted but had no row left to unclick. Root cause: the
+    // live selection wasn't reconciled against the eligible UTXO set on
+    // reopen. Repro the desync directly: pin input A, spend A out-of-band,
+    // reopen — the count must drop back to 0 and a fresh pick reads 1.
+    const W = 'fe-cc-stale-' + stamp();
+    expect((await api(request, `wallet/create?name=${W}&type=regular&seed=fe-cc-stale-seed-${stamp()}&address_count=3`, { method: 'POST' })).ok()).toBeTruthy();
+    const wInfo = await (await api(request, `wallet/info?name=${W}`)).json();
+    const wAddr0 = wInfo.addresses[0].address;
+    const wAddr1 = wInfo.addresses[1].address;
+    await ensureFunds(request, 'test-oyo-e2e', 5);
+    // Two distinct-sized canonical UTXOs so we can target one by amount.
+    expect((await api(request, `wallet/send?name=test-oyo-e2e&to=${wAddr0}&amount=0.10`, { method: 'POST' })).ok()).toBeTruthy();
+    expect((await api(request, `wallet/send?name=test-oyo-e2e&to=${wAddr1}&amount=0.50`, { method: 'POST' })).ok()).toBeTruthy();
+    await api(request, 'mine?count=1', { method: 'POST' });
+    let utxos = [];
+    for (let i = 0; i < 40; i++) {
+      await api(request, 'chain/sync', { method: 'POST' });
+      utxos = await (await api(request, `wallet/utxos?name=${W}`)).json();
+      if (Array.isArray(utxos) && utxos.length >= 2) break;
+      await new Promise(r => setTimeout(r, 200));
+    }
+    expect(utxos.length).toBe(2);
+    const smaller = utxos.slice().sort((a, b) => a.amount_sat - b.amount_sat)[0];
+    expect(smaller.amount_sat).toBe(10000000);
+
+    await page.goto(`/#wallet/${W}`);
+    await expect(page.locator('#send-to')).toBeVisible({ timeout: 5000 });
+
+    // Pin the smaller UTXO (its row shows "0.10000000 LTC").
+    await page.locator('#send-pick-link').click();
+    await expect(page.locator('#modal-overlay.visible')).toBeVisible();
+    await page.locator('.utxo-pick', { hasText: '0.10000000' }).click();
+    await expect(page.locator('#picker-foot')).toContainText('1 selected');
+    await page.locator('#modal-body >> text=Done').click();
+    await expect(page.locator('#send-coincontrol-text')).toContainText('1 input selected');
+
+    // Spend the pinned UTXO out-of-band — another send consumes it.
+    const dest = (await (await api(request, 'wallet/newaddress?name=test-e2e&type=bech32', { method: 'POST' })).json()).address;
+    const est = await (await api(request, `wallet/estimate-send?name=${W}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      data: { outputs: [{ address: dest, amount_sat: 5000000 }], inputs: [{ txid: smaller.txid, vout: smaller.vout }] },
+    })).json();
+    expect(est.confirm_token).toBeTruthy();
+    expect((await api(request, `wallet/send?name=${W}&confirm_token=${est.confirm_token}`, { method: 'POST' })).ok()).toBeTruthy();
+    await api(request, 'mine?count=1', { method: 'POST' });
+    await api(request, 'chain/sync', { method: 'POST' });
+
+    // Reopen the picker: the spent pin is reconciled away — footer back to
+    // 0, and picking a fresh UTXO reads 1 (pre-fix it lingered → "2 selected").
+    await page.locator('#send-coincontrol-summary >> text=Edit').click();
+    await expect(page.locator('#modal-overlay.visible')).toBeVisible();
+    await expect(page.locator('#picker-foot')).toContainText('0 selected');
+    const rows = page.locator('.utxo-pick');
+    await expect(rows.first()).toBeVisible();
+    await rows.first().click();
+    await expect(page.locator('#picker-foot')).toContainText('1 selected');
+
+    await api(request, `wallet/delete?name=${W}`, { method: 'POST' }).catch(() => {});
+  });
+
+  test('coin-control: Max with a pinned input drains exactly that input (bug #2)', async ({ page, request }) => {
+    // With a manual selection Max must stay usable and drain the pinned
+    // input (send_all + inputs[]), not vanish. Single known UTXO so the
+    // drained amount is exact (coin − fee). Exercises the full UI wiring:
+    // fillMaxSend's manual branch + sendCoins' maxOverInputs path.
+    const W = 'fe-cc-maxpin-' + stamp();
+    expect((await api(request, `wallet/create?name=${W}&type=regular&seed=fe-cc-maxpin-seed-${stamp()}&address_count=3`, { method: 'POST' })).ok()).toBeTruthy();
+    const wAddr0 = (await (await api(request, `wallet/info?name=${W}`)).json()).addresses[0].address;
+    await ensureFunds(request, 'test-oyo-e2e', 5);
+    expect((await api(request, `wallet/send?name=test-oyo-e2e&to=${wAddr0}&amount=0.30`, { method: 'POST' })).ok()).toBeTruthy();
+    await api(request, 'mine?count=1', { method: 'POST' });
+    let utxos = [];
+    for (let i = 0; i < 40; i++) {
+      await api(request, 'chain/sync', { method: 'POST' });
+      utxos = await (await api(request, `wallet/utxos?name=${W}`)).json();
+      if (Array.isArray(utxos) && utxos.length >= 1) break;
+      await new Promise(r => setTimeout(r, 200));
+    }
+    expect(utxos.length).toBe(1);
+
+    await page.goto(`/#wallet/${W}`);
+    await expect(page.locator('#send-to')).toBeVisible({ timeout: 5000 });
+
+    const dest = (await (await api(request, 'wallet/newaddress?name=test-e2e&type=bech32', { method: 'POST' })).json()).address;
+    await page.fill('#send-to', dest);
+
+    // Pin the only UTXO.
+    await page.locator('#send-pick-link').click();
+    await expect(page.locator('#modal-overlay.visible')).toBeVisible();
+    await page.locator('.utxo-pick', { hasText: '0.30000000' }).click();
+    await expect(page.locator('#picker-foot')).toContainText('1 selected');
+    await page.locator('#modal-body >> text=Done').click();
+
+    // Max stays visible and, clicked, fills the drained amount + hint.
+    await expect(page.locator('#send-max-btn')).toBeVisible();
+    await page.locator('#send-max-btn').click();
+    await expect(page.locator('#send-fee-hint')).toContainText('drains the 1 selected input');
+    const amt = parseFloat(await page.locator('#send-amount').inputValue());
+    expect(amt).toBeGreaterThan(0.29);
+    expect(amt).toBeLessThan(0.30);
+
+    // Prepare → confirm modal routes a plain drain (send_all + inputs[]).
+    await page.click('text=Prepare Transaction');
+    await expect(page.locator('#modal-overlay.visible')).toBeVisible();
+    await expect(page.locator('#modal-body')).toContainText('Plain spend');
+    await page.click('#modal-body >> text=Cancel');
+
+    await api(request, `wallet/delete?name=${W}`, { method: 'POST' }).catch(() => {});
+  });
+
+  test('coin-control: clearing a pinned selection after Max disarms it — no silent whole-wallet drain (bug #2 follow-up)', async ({ page, request }) => {
+    // Guard the bridge the reviewer flagged: arm Max over a pinned input,
+    // then clear the selection. The armed Max must disarm so Prepare can't
+    // fall back to send_all-without-inputs (which would drain the WHOLE
+    // wallet side, not the now-empty selection). Two UTXOs so a stray
+    // whole-wallet drain would visibly exceed the single pin.
+    const W = 'fe-cc-maxclr-' + stamp();
+    expect((await api(request, `wallet/create?name=${W}&type=regular&seed=fe-cc-maxclr-seed-${stamp()}&address_count=3`, { method: 'POST' })).ok()).toBeTruthy();
+    const wInfo = await (await api(request, `wallet/info?name=${W}`)).json();
+    const wAddr0 = wInfo.addresses[0].address;
+    const wAddr1 = wInfo.addresses[1].address;
+    await ensureFunds(request, 'test-oyo-e2e', 5);
+    expect((await api(request, `wallet/send?name=test-oyo-e2e&to=${wAddr0}&amount=0.30`, { method: 'POST' })).ok()).toBeTruthy();
+    expect((await api(request, `wallet/send?name=test-oyo-e2e&to=${wAddr1}&amount=0.20`, { method: 'POST' })).ok()).toBeTruthy();
+    await api(request, 'mine?count=1', { method: 'POST' });
+    let utxos = [];
+    for (let i = 0; i < 40; i++) {
+      await api(request, 'chain/sync', { method: 'POST' });
+      utxos = await (await api(request, `wallet/utxos?name=${W}`)).json();
+      if (Array.isArray(utxos) && utxos.length >= 2) break;
+      await new Promise(r => setTimeout(r, 200));
+    }
+    expect(utxos.length).toBe(2);
+
+    await page.goto(`/#wallet/${W}`);
+    await expect(page.locator('#send-to')).toBeVisible({ timeout: 5000 });
+    const dest = (await (await api(request, 'wallet/newaddress?name=test-e2e&type=bech32', { method: 'POST' })).json()).address;
+    await page.fill('#send-to', dest);
+
+    // Pin the 0.30 input and arm Max over it.
+    await page.locator('#send-pick-link').click();
+    await expect(page.locator('#modal-overlay.visible')).toBeVisible();
+    await page.locator('.utxo-pick', { hasText: '0.30000000' }).click();
+    await page.locator('#modal-body >> text=Done').click();
+    await page.locator('#send-max-btn').click();
+    await expect(page.locator('#send-fee-hint')).toContainText('drains the 1 selected input');
+    expect(parseFloat(await page.locator('#send-amount').inputValue())).toBeGreaterThan(0);
+
+    // Clear the selection — Max must disarm: chip + hint gone, amount wiped.
+    await page.locator('#send-coincontrol-summary >> text=Clear').click();
+    await expect(page.locator('#send-coincontrol-summary')).not.toBeVisible();
+    await expect(page.locator('#send-fee-hint')).not.toBeVisible();
+    await expect(page.locator('#send-amount')).toHaveValue('');
+
+    // Prepare with no amount must be blocked (amount required), NOT a drain:
+    // no confirm modal appears.
+    await page.click('text=Prepare Transaction');
+    await page.waitForTimeout(600);
+    await expect(page.locator('#modal-overlay.visible')).not.toBeVisible();
+
+    await api(request, `wallet/delete?name=${W}`, { method: 'POST' }).catch(() => {});
   });
 
   test('auto send: fee presets render from /api/fees and drive the estimate rate (P2.5)', async ({ page, request }) => {
@@ -4956,6 +5123,139 @@ test.describe('OYO wallet matrix', () => {
     expect(body).toMatch(/not in wallet/i);
 
     await api(request, `wallet/delete?name=${R}`, { method: 'POST' }).catch(() => {});
+  });
+
+  test('manual inputs U(both sides funded) MWEB-pin → bech32: routes peg-out, not "requires txid+vout"', async ({ request }) => {
+    // Field repro: "oyo_wallet_send: rc=1, inputs[i] requires txid + vout
+    // (canonical path)". A universal wallet funded on BOTH sides; the
+    // dispatcher's balance heuristic picked regular_send for the canonical
+    // (bech32) destination, but the user pinned an MWEB commitment input —
+    // which regular_send's ParseSendInputsLocked(expect_mweb=false) then
+    // rejected. Routing must follow the pinned input's KIND: an MWEB
+    // commitment goes through mweb_send (peg-out for a canonical dest).
+    const U = 'mtx-mi-Upeg-' + stamp();
+    expect((await api(request, `wallet/create?name=${U}&type=universal&seed=${freshMwebSeed()}&address_count=2`, { method: 'POST' })).ok()).toBeTruthy();
+    const uInfo0 = await (await api(request, `wallet/info?name=${U}`)).json();
+    const uBech32 = uInfo0.addresses[0].address;
+    const uMwebAddr = uInfo0.mweb.addresses[0].address;
+
+    await ensureFunds(request, 'test-oyo-e2e', 5);
+    // Fund the canonical side richly so the heuristic prefers regular_send
+    // (canonical_balance >= amount + 100k slack), then fund the MWEB side.
+    expect((await api(request, `wallet/send?name=test-oyo-e2e&to=${uBech32}&amount=1.0`, { method: 'POST' })).ok()).toBeTruthy();
+    expect((await api(request, `wallet/send?name=test-oyo-e2e&to=${uMwebAddr}&amount=0.5`, { method: 'POST' })).ok()).toBeTruthy();
+    await api(request, 'mine?count=2', { method: 'POST' });
+    await api(request, 'chain/sync', { method: 'POST' });
+    await api(request, 'chain/mempool-sync', { method: 'POST' });
+
+    const uInfo = await (await api(request, `wallet/info?name=${U}`)).json();
+    expect(uInfo.mweb.balance_sat).toBe(50000000);
+    expect(uInfo.confirmed_sat - uInfo.mweb.balance_sat).toBe(100000000);  // canonical side funded
+
+    const utxos = await (await api(request, `wallet/utxos?name=${U}`)).json();
+    const mwebUtxo = utxos.find(u => u.commitment);
+    expect(mwebUtxo).toBeTruthy();
+
+    const bech32Dest = (await (await api(request, 'wallet/newaddress?name=test-e2e&type=bech32', { method: 'POST' })).json()).address;
+    const est = await (await api(request, `wallet/estimate-send?name=${U}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      data: {
+        outputs: [{ address: bech32Dest, amount_sat: 10000000 }],
+        inputs:  [{ commitment: mwebUtxo.commitment }],
+      },
+    })).json();
+    expect(est.path).toBe('peg-out');
+    expect(est.would_accept).toBe(true);
+    expect(est.inputs.length).toBe(1);
+    expect(est.inputs[0].kind).toBe('mweb');
+    expect(est.inputs[0].commitment).toBe(mwebUtxo.commitment);
+
+    await api(request, `wallet/delete?name=${U}`, { method: 'POST' }).catch(() => {});
+  });
+
+  test('manual inputs rejected: canonical + MWEB pins cannot mix in one tx', async ({ request }) => {
+    // One LTC tx crosses at most one MWEB boundary, so it can't spend a
+    // canonical (P2WPKH) and an MWEB input together. The dispatcher must
+    // reject the mixed pin with a clear message instead of handing it to a
+    // single finalizer that rejects the "wrong-kind" entries.
+    const U = 'mtx-mi-mix-' + stamp();
+    expect((await api(request, `wallet/create?name=${U}&type=universal&seed=${freshMwebSeed()}&address_count=2`, { method: 'POST' })).ok()).toBeTruthy();
+    const uInfo0 = await (await api(request, `wallet/info?name=${U}`)).json();
+    const uBech32 = uInfo0.addresses[0].address;
+    const uMwebAddr = uInfo0.mweb.addresses[0].address;
+
+    await ensureFunds(request, 'test-oyo-e2e', 5);
+    expect((await api(request, `wallet/send?name=test-oyo-e2e&to=${uBech32}&amount=1.0`, { method: 'POST' })).ok()).toBeTruthy();
+    expect((await api(request, `wallet/send?name=test-oyo-e2e&to=${uMwebAddr}&amount=0.5`, { method: 'POST' })).ok()).toBeTruthy();
+    await api(request, 'mine?count=2', { method: 'POST' });
+    await api(request, 'chain/sync', { method: 'POST' });
+    await api(request, 'chain/mempool-sync', { method: 'POST' });
+
+    const utxos = await (await api(request, `wallet/utxos?name=${U}`)).json();
+    const canon = utxos.find(u => u.txid && u.vout !== undefined && !u.commitment);
+    const mweb  = utxos.find(u => u.commitment);
+    expect(canon).toBeTruthy();
+    expect(mweb).toBeTruthy();
+
+    const bech32Dest = (await (await api(request, 'wallet/newaddress?name=test-e2e&type=bech32', { method: 'POST' })).json()).address;
+    const resp = await api(request, `wallet/estimate-send?name=${U}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      data: {
+        outputs: [{ address: bech32Dest, amount_sat: 10000000 }],
+        inputs:  [{ txid: canon.txid, vout: canon.vout }, { commitment: mweb.commitment }],
+      },
+    });
+    expect(resp.ok()).toBe(false);
+    expect(await resp.text()).toMatch(/mix/i);
+
+    await api(request, `wallet/delete?name=${U}`, { method: 'POST' }).catch(() => {});
+  });
+
+  test('Max over a manual MWEB pin → bech32: send_all drains exactly the pinned input (peg-out)', async ({ request }) => {
+    // The "send max from the selected inputs" path the Max button drives
+    // when a manual selection is active: send_all + inputs[] drains the
+    // pinned coins. For an MWEB pin to a canonical dest that's a peg-out
+    // of just that coin (recipient = coin − fee, no MWEB change). Proves
+    // Max is no longer canonical-only ("counts only non-mweb addresses").
+    const U = 'mtx-mi-maxpeg-' + stamp();
+    expect((await api(request, `wallet/create?name=${U}&type=universal&seed=${freshMwebSeed()}&address_count=2`, { method: 'POST' })).ok()).toBeTruthy();
+    const uInfo0 = await (await api(request, `wallet/info?name=${U}`)).json();
+    const uBech32 = uInfo0.addresses[0].address;
+    const uMwebAddr = uInfo0.mweb.addresses[0].address;
+
+    await ensureFunds(request, 'test-oyo-e2e', 5);
+    expect((await api(request, `wallet/send?name=test-oyo-e2e&to=${uBech32}&amount=1.0`, { method: 'POST' })).ok()).toBeTruthy();
+    // Two distinct MWEB UTXOs so "drain just the pinned one" is observable.
+    expect((await api(request, `wallet/send?name=test-oyo-e2e&to=${uMwebAddr}&amount=0.2`, { method: 'POST' })).ok()).toBeTruthy();
+    expect((await api(request, `wallet/send?name=test-oyo-e2e&to=${uMwebAddr}&amount=0.5`, { method: 'POST' })).ok()).toBeTruthy();
+    await api(request, 'mine?count=2', { method: 'POST' });
+    await api(request, 'chain/sync', { method: 'POST' });
+    await api(request, 'chain/mempool-sync', { method: 'POST' });
+
+    const utxos = await (await api(request, `wallet/utxos?name=${U}`)).json();
+    const mwebUtxos = utxos.filter(u => u.commitment).sort((a, b) => a.amount_sat - b.amount_sat);
+    expect(mwebUtxos.length).toBe(2);
+    const pin = mwebUtxos[0];
+    expect(pin.amount_sat).toBe(20000000);
+
+    const bech32Dest = (await (await api(request, 'wallet/newaddress?name=test-e2e&type=bech32', { method: 'POST' })).json()).address;
+    const est = await (await api(request, `wallet/estimate-send?name=${U}&to=${bech32Dest}&send_all=true`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      data: { inputs: [{ commitment: pin.commitment }] },
+    })).json();
+    expect(est.path).toBe('peg-out');
+    expect(est.would_accept).toBe(true);
+    expect(est.inputs.length).toBe(1);
+    expect(est.inputs[0].commitment).toBe(pin.commitment);
+    expect(est.inputs_total_sat).toBe(20000000);
+    expect(est.fee_sat).toBeGreaterThan(0);
+    // send_all over the pin → recipient gets the coin minus fee, no change.
+    expect(est.amount_sat).toBe(20000000 - est.fee_sat);
+
+    await api(request, `wallet/delete?name=${U}`, { method: 'POST' }).catch(() => {});
   });
 
   test('custom change R→R: change_address routes the change output (P2.3)', async ({ request }) => {

@@ -7322,6 +7322,9 @@ OYO_API int32_t oyo_wallet_bootstrap(OYO_WALLET wh, OYO_OP* out) {
 // Unified send. Routing rule (symmetric — pick the side that has the
 // balance, same shape for stealth and canonical destinations):
 //   - watch wallets: reject (read-only).
+//   - explicit inputs[]: route by the pinned coins' kind (MWEB commitment
+//     → mweb_send; canonical txid:vout → regular/peg-in), not by balance.
+//     Mixed canonical+MWEB pins are rejected.
 //   - mweb-only wallet: mweb_send (handles both M→M and peg-out).
 //   - regular-only wallet:
 //       * canonical destination → regular_send.
@@ -7380,6 +7383,46 @@ OYO_API int32_t oyo_wallet_send(OYO_WALLET wh,
     if (!IsValidDestination(dest))
         return Fail(ctx, OYO_ERR_INVALID_ARG, "invalid destination: " + route_addr);
     const bool to_stealth = boost::get<StealthAddress>(&dest) != nullptr;
+
+    // Explicitly-pinned inputs[] override the balance heuristic: the KIND
+    // of coin the caller selected — not which side holds more balance —
+    // fixes the send path. An MWEB commitment has to go through the MWEB
+    // finalizer (M→M for a stealth dest, peg-out for a canonical dest); a
+    // canonical txid:vout through regular/peg-in. Routing these by balance
+    // handed MWEB commitments to regular_send on a both-sides-funded
+    // universal wallet, which then rejected them with
+    // "inputs[i] requires txid + vout (canonical path)".
+    {
+        const UniValue& ins = cfg["inputs"];
+        if (ins.isArray() && ins.size() > 0) {
+            bool saw_mweb = false, saw_canon = false;
+            for (size_t i = 0; i < ins.size(); ++i) {
+                const UniValue& e = ins[i];
+                if (e.isObject() && e["commitment"].isStr() &&
+                    !e["commitment"].get_str().empty())
+                    saw_mweb = true;
+                else
+                    saw_canon = true;   // txid:vout — shape validated in the impl
+            }
+            // A single LTC tx crosses at most one MWEB boundary, so it
+            // cannot spend canonical and MWEB inputs together.
+            if (saw_mweb && saw_canon)
+                return Fail(ctx, OYO_ERR_UNSUPPORTED,
+                            "cannot mix canonical and MWEB inputs in one transaction");
+            if (saw_mweb) {
+                if (!w->has_mweb)
+                    return Fail(ctx, OYO_ERR_INVALID_ARG,
+                                "selected MWEB inputs but wallet has no MWEB side");
+                return mweb_send_impl(wh, config_json, config_len, out);
+            }
+            if (!w->has_p2wpkh)
+                return Fail(ctx, OYO_ERR_INVALID_ARG,
+                            "selected canonical inputs but wallet has no canonical side");
+            return to_stealth
+                ? pegin_send_impl(wh, config_json, config_len, out)
+                : regular_send_impl(wh, config_json, config_len, out);
+        }
+    }
 
     // mweb-only handles both stealth (M→M) and canonical (peg-out) inside.
     if (!w->has_p2wpkh) return mweb_send_impl(wh, config_json, config_len, out);

@@ -1270,8 +1270,11 @@ function refreshRecipientControls() {
   });
   // Returning to a single row clears any drain selection + re-enables amounts.
   if (!multi) rows.forEach(clearRowDrain);
+  // Max stays available for a single recipient even with pinned inputs —
+  // there it drains exactly the selection (send_all + inputs[]). Only true
+  // multi-recipient hides it (send_all is incompatible with outputs[]).
   const maxBtn = $('#send-max-btn');
-  if (maxBtn) maxBtn.style.display = (multi || _manualInputs.length > 0) ? 'none' : '';
+  if (maxBtn) maxBtn.style.display = multi ? 'none' : '';
   if (multi && _maxModeActive) {
     // Adding a recipient while in Max mode invalidates Max.
     _maxModeActive = false;
@@ -1353,6 +1356,19 @@ async function openInputPicker() {
   if (!data) return;
   // Only confirmed, not-already-spending UTXOs are eligible inputs.
   _utxoCache = (Array.isArray(data) ? data : []).filter(u => u.confirmed !== false && !u.spent_pending);
+  // Reconcile the live selection against what's still eligible. A UTXO
+  // picked earlier may have since been spent (or moved to spent_pending
+  // by another send), so it's gone from the fetched set. Left in
+  // _manualInputs it becomes a phantom: counted in the footer and posted
+  // as an input, but with no row to click to clear it — which is how a
+  // stale pick inflated the "N selected" count after a send. Drop those
+  // so the picker count always matches the visible, clickable rows.
+  const eligible = new Set(_utxoCache.map(_utxoKey));
+  const kept = _manualInputs.filter(i => eligible.has(i.key));
+  if (kept.length !== _manualInputs.length) {
+    _manualInputs = kept;
+    updateManualInputsSummary();
+  }
   renderInputPicker();
 }
 
@@ -1411,29 +1427,39 @@ function clearManualInputs() {
 }
 
 // Reflect the current selection in the send form: a summary chip when
-// inputs are picked, the plain link otherwise. Manual inputs make the
-// Max button meaningless (drain semantics are ambiguous over a fixed
-// subset), so clear/hide it while a selection is active.
+// inputs are picked, the plain link otherwise. With a single recipient
+// the Max button stays usable — clicking it drains exactly the pinned
+// inputs (fillMaxSend posts send_all + inputs[]).
 function updateManualInputsSummary() {
   const sum  = $('#send-coincontrol-summary');
   const link = $('#send-pick-link');
   const txt  = $('#send-coincontrol-text');
   if (!sum || !link || !txt) return;
-  const maxBtn = $('#send-max-btn');
-  if (_manualInputs.length === 0) {
-    sum.style.display = 'none';
-    link.style.display = '';
-    const multi = document.querySelectorAll('.send-recipient-row').length > 1;
-    if (maxBtn) maxBtn.style.display = multi ? 'none' : '';
-    return;
-  }
+  // Any change to the manual selection invalidates a previously-armed Max
+  // amount — whether it was a whole-wallet drain (a pin was then added) or
+  // a drain-the-selection (the set then changed or was cleared). Disarm
+  // here, BEFORE the empty-selection early return, so a stale Max can never
+  // fall back into the wrong send_all path on Prepare: arming Max over a
+  // pin and then clearing the pin would otherwise send_all the whole wallet
+  // side. Clearing the auto-filled amount also forces Prepare's
+  // "amount required" guard instead of reusing a stale drain figure.
   if (_maxModeActive) {
     _maxModeActive = false;
     _maxModeFeeRate = 0;
     const hint = $('#send-fee-hint');
     if (hint) hint.style.display = 'none';
+    const amt = $('#send-amount');
+    if (amt) amt.value = '';
   }
-  if (maxBtn) maxBtn.style.display = 'none';
+  // Max is hidden only for true multi-recipient (send_all ⊥ outputs[]).
+  const multi = document.querySelectorAll('.send-recipient-row').length > 1;
+  const maxBtn = $('#send-max-btn');
+  if (maxBtn) maxBtn.style.display = multi ? 'none' : '';
+  if (_manualInputs.length === 0) {
+    sum.style.display = 'none';
+    link.style.display = '';
+    return;
+  }
   const total = _manualInputs.reduce((a, i) => a + (i.amount_sat || 0), 0);
   txt.textContent = `${_manualInputs.length} input${_manualInputs.length > 1 ? 's' : ''} selected · ${fmtLTC(total / 1e8)} LTC`;
   sum.style.display = 'flex';
@@ -1521,11 +1547,20 @@ async function sendCoins() {
   // renders the modal; on Confirm we POST /api/wallet/send?confirm_token=
   // and the server broadcasts the exact bytes the user just approved.
   //
+  // Max over a manual selection drains exactly the pinned inputs:
+  // send_all + inputs[], single recipient, no drain row / custom change.
+  // send_all is incompatible with outputs[], so this can't use the body
+  // outputs[] path — it rides the single-recipient URL path with an
+  // inputs[] body instead.
+  const maxOverInputs = _maxModeActive && manualInputs.length > 0 &&
+                        rows.length === 1 && !hasDrain && !changeAddress;
+
   // Body path (POST outputs[]/inputs[]/change_address) is required for
   // multi-recipient, manual coin control, a drain ("max") output, or a
   // custom change address. Single-recipient + automatic selection keeps
   // the URL-param path so Max / send_all still work.
-  const useBody = rows.length > 1 || manualInputs.length > 0 || hasDrain || !!changeAddress;
+  const useBody = !maxOverInputs &&
+                  (rows.length > 1 || manualInputs.length > 0 || hasDrain || !!changeAddress);
 
   // outputs[] shape: the drain row carries max:true (engine computes the
   // amount); fixed rows carry amount_sat.
@@ -1550,7 +1585,15 @@ async function sendCoins() {
   }
 
   let est;
-  if (!useBody) {
+  if (maxOverInputs) {
+    let url = `wallet/estimate-send?name=${encodeURIComponent(currentWallet)}&to=${encodeURIComponent(rows[0].to)}&send_all=true`;
+    if (_maxModeFeeRate > 0) url += `&fee_rate_sat_per_vb=${_maxModeFeeRate}`;
+    est = await api(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ inputs: manualInputs }),
+    });
+  } else if (!useBody) {
     const to = rows[0].to;
     const amount = rows[0].amount;
     let url = `wallet/estimate-send?name=${encodeURIComponent(currentWallet)}&to=${encodeURIComponent(to)}`;
@@ -1595,7 +1638,14 @@ async function sendCoins() {
   // exactly the same fields the form would have driven through
   // /api/wallet/send (manual inputs[], drain outputs, custom change — so
   // the queue replays the same tx shape).
-  const recipe = !useBody
+  const recipe = maxOverInputs
+    ? {
+        to: rows[0].to,
+        send_all: true,
+        inputs: manualInputs,
+        fee_rate_sat_per_vb: _maxModeFeeRate > 0 ? _maxModeFeeRate : 0,
+      }
+    : !useBody
     ? {
         to: rows[0].to,
         amount_sat: _maxModeActive ? 0 : Math.round(parseFloat(rows[0].amount) * 1e8),
@@ -1939,10 +1989,18 @@ async function fillMaxSend() {
     toast('Max for node wallets requires oyo-send; enter a fixed amount instead', true);
     return;
   }
+  // With a manual selection, drain exactly the pinned inputs (send_all
+  // over inputs[]); the engine routes the side that matches them —
+  // P2WPKH spend for canonical, peg-out / M→M for MWEB. Without a
+  // selection, drain the whole wallet side via the legacy URL path.
+  const manualInputs = readManualInputs();
   let url = `wallet/estimate-send?name=${encodeURIComponent(currentWallet)}&to=${encodeURIComponent(to)}&send_all=true`;
   if (_feeRate > 0) url += `&fee_rate_sat_per_vb=${_feeRate}`;
+  const opts = manualInputs.length > 0
+    ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ inputs: manualInputs }) }
+    : undefined;
   try {
-    const data = await api(url);
+    const data = await api(url, opts);
     if (!data) return;
     if (data.amount_sat == null || data.amount_sat <= 0) {
       toast('No confirmed UTXOs to spend', true);
@@ -1957,7 +2015,9 @@ async function fillMaxSend() {
     const rate = data.fee_rate_sat_per_vb || 1;
     const hint = $('#send-fee-hint');
     hint.style.display = '';
-    hint.textContent = `Max: recipient gets ${ltc} LTC after ${feeSat} sat fee (rate ${rate} sat/vB) — Send drains the wallet.`;
+    hint.textContent = manualInputs.length > 0
+      ? `Max: recipient gets ${ltc} LTC after ${feeSat} sat fee (rate ${rate} sat/vB) — drains the ${manualInputs.length} selected input${manualInputs.length > 1 ? 's' : ''}.`
+      : `Max: recipient gets ${ltc} LTC after ${feeSat} sat fee (rate ${rate} sat/vB) — Send drains the wallet.`;
   } catch (e) {
     toast('estimate-send failed: ' + (e?.message || e), true);
   }
