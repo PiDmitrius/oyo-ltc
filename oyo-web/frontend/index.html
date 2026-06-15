@@ -1407,6 +1407,13 @@ function renderInputPicker() {
   const mixedWarn = mixed
     ? `<div style="font-size:11px;color:var(--red);margin-bottom:10px;">⚠ Canonical and MWEB inputs can't be combined in one transaction — pick one kind.</div>`
     : '';
+  // INVARIANT: "Done" is the picker's ONLY exit, and it runs
+  // updateManualInputsSummary() — which disarms a stale Max and reconciles
+  // the selection. There is deliberately no overlay-click / Escape dismiss
+  // (showModal/#modal-overlay wire none). Do NOT add a picker dismiss path
+  // that bypasses updateManualInputsSummary: a stale send_all/drain Max
+  // intent could then survive a coin-control interaction. Guarded by the
+  // "closing the re-opened picker disarms a pinned Max" e2e test.
   showModal('Select inputs', `
     <div style="font-size:12px;color:var(--dim);margin-bottom:12px;">Pick which UTXOs fund this transaction. Leave empty for automatic coin selection.</div>
     <div style="max-height:50vh;overflow-y:auto;margin-bottom:12px;">${rows}</div>

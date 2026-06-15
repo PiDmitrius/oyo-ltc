@@ -1117,6 +1117,54 @@ test.describe('Frontend', () => {
     await api(request, `wallet/delete?name=${W}`, { method: 'POST' }).catch(() => {});
   });
 
+  test('coin-control: closing the re-opened picker disarms a pinned Max (exit-invariant)', async ({ page, request }) => {
+    // The pinned-Max safety rests on the picker's only exit (Done) running
+    // updateManualInputsSummary. Pin a coin, arm Max, then re-open and close
+    // the picker WITHOUT changing the selection: Max must still disarm
+    // (amount cleared, hint hidden). Fails if a future dismiss path bypasses
+    // the disarm.
+    const W = 'fe-cc-exitinv-' + stamp();
+    expect((await api(request, `wallet/create?name=${W}&type=regular&seed=fe-cc-exitinv-seed-${stamp()}&address_count=3`, { method: 'POST' })).ok()).toBeTruthy();
+    const wAddr0 = (await (await api(request, `wallet/info?name=${W}`)).json()).addresses[0].address;
+    await ensureFunds(request, 'test-oyo-e2e', 5);
+    expect((await api(request, `wallet/send?name=test-oyo-e2e&to=${wAddr0}&amount=0.30`, { method: 'POST' })).ok()).toBeTruthy();
+    await api(request, 'mine?count=1', { method: 'POST' });
+    let utxos = [];
+    for (let i = 0; i < 40; i++) {
+      await api(request, 'chain/sync', { method: 'POST' });
+      utxos = await (await api(request, `wallet/utxos?name=${W}`)).json();
+      if (Array.isArray(utxos) && utxos.length >= 1) break;
+      await new Promise(r => setTimeout(r, 200));
+    }
+    expect(utxos.length).toBeGreaterThanOrEqual(1);
+
+    await page.goto(`/#wallet/${W}`);
+    await expect(page.locator('#send-to')).toBeVisible({ timeout: 5000 });
+    const dest = (await (await api(request, 'wallet/newaddress?name=test-e2e&type=bech32', { method: 'POST' })).json()).address;
+    await page.fill('#send-to', dest);
+
+    // Pin + arm Max.
+    await page.locator('#send-pick-link').click();
+    await expect(page.locator('#modal-overlay.visible')).toBeVisible();
+    await page.locator('.utxo-pick', { hasText: '0.30000000' }).click();
+    await page.locator('#modal-body >> text=Done').click();
+    await page.locator('#send-max-btn').click();
+    await expect(page.locator('#send-fee-hint')).toBeVisible();
+    expect(parseFloat(await page.locator('#send-amount').inputValue())).toBeGreaterThan(0);
+
+    // Re-open the picker (Edit) and close via Done WITHOUT changing selection.
+    await page.locator('#send-coincontrol-summary >> text=Edit').click();
+    await expect(page.locator('#modal-overlay.visible')).toBeVisible();
+    await page.locator('#modal-body >> text=Done').click();
+    await expect(page.locator('#modal-overlay.visible')).not.toBeVisible();
+
+    // Max disarmed on the picker exit: amount cleared, hint hidden.
+    await expect(page.locator('#send-amount')).toHaveValue('');
+    await expect(page.locator('#send-fee-hint')).not.toBeVisible();
+
+    await api(request, `wallet/delete?name=${W}`, { method: 'POST' }).catch(() => {});
+  });
+
   test('coin-control: picker warns when canonical and MWEB inputs are mixed', async ({ page, request }) => {
     // A single tx can't combine canonical and MWEB inputs; surface that in
     // the picker instead of only failing at Prepare.
