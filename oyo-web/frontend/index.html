@@ -1400,9 +1400,17 @@ function renderInputPicker() {
       }).join('');
   const selCount = _manualInputs.length;
   const selTotal = _manualInputs.reduce((a, i) => a + (i.amount_sat || 0), 0);
+  // A single tx can't combine canonical and MWEB inputs (one peg boundary
+  // max). Flag a mixed selection here rather than letting it fail only at
+  // Prepare — the engine rejects it ("cannot mix ...") regardless.
+  const mixed = _manualInputs.some(i => i.commitment) && _manualInputs.some(i => !i.commitment);
+  const mixedWarn = mixed
+    ? `<div style="font-size:11px;color:var(--red);margin-bottom:10px;">⚠ Canonical and MWEB inputs can't be combined in one transaction — pick one kind.</div>`
+    : '';
   showModal('Select inputs', `
     <div style="font-size:12px;color:var(--dim);margin-bottom:12px;">Pick which UTXOs fund this transaction. Leave empty for automatic coin selection.</div>
     <div style="max-height:50vh;overflow-y:auto;margin-bottom:12px;">${rows}</div>
+    ${mixedWarn}
     <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;border-top:1px solid var(--border);padding-top:12px;">
       <span id="picker-foot" style="font-size:12px;color:var(--text);">${selCount} selected · ${fmtLTC(selTotal / 1e8)} LTC</span>
       <div style="display:flex;gap:8px;">

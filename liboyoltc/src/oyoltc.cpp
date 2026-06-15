@@ -7398,11 +7398,25 @@ OYO_API int32_t oyo_wallet_send(OYO_WALLET wh,
             bool saw_mweb = false, saw_canon = false;
             for (size_t i = 0; i < ins.size(); ++i) {
                 const UniValue& e = ins[i];
-                if (e.isObject() && e["commitment"].isStr() &&
-                    !e["commitment"].get_str().empty())
+                // Contract: each pinned input is exactly one kind. A
+                // commitment identifies an MWEB coin; txid:vout a canonical
+                // one. An entry must carry one and never both — carrying
+                // both is ambiguous (which coin did the caller mean?), so
+                // reject it rather than silently letting the commitment win.
+                const bool has_commit   = e.isObject() && e["commitment"].isStr();
+                const bool has_outpoint = e.isObject() &&
+                                          (e["txid"].isStr() || e["vout"].isNum());
+                if (has_commit && has_outpoint)
+                    return Fail(ctx, OYO_ERR_INVALID_ARG,
+                                "inputs[i] has both commitment and txid/vout (ambiguous)");
+                if (has_commit) {
+                    if (e["commitment"].get_str().empty())
+                        return Fail(ctx, OYO_ERR_INVALID_ARG,
+                                    "inputs[i].commitment is empty");
                     saw_mweb = true;
-                else
-                    saw_canon = true;   // txid:vout — shape validated in the impl
+                } else {
+                    saw_canon = true;   // txid:vout (or malformed) — validated in the impl
+                }
             }
             // A single LTC tx crosses at most one MWEB boundary, so it
             // cannot spend canonical and MWEB inputs together.

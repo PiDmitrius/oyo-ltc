@@ -1117,6 +1117,46 @@ test.describe('Frontend', () => {
     await api(request, `wallet/delete?name=${W}`, { method: 'POST' }).catch(() => {});
   });
 
+  test('coin-control: picker warns when canonical and MWEB inputs are mixed', async ({ page, request }) => {
+    // A single tx can't combine canonical and MWEB inputs; surface that in
+    // the picker instead of only failing at Prepare.
+    const U = 'fe-cc-mixwarn-' + stamp();
+    expect((await api(request, `wallet/create?name=${U}&type=universal&seed=fe-cc-mixwarn-seed-${stamp()}&address_count=2`, { method: 'POST' })).ok()).toBeTruthy();
+    const uInfo = await (await api(request, `wallet/info?name=${U}`)).json();
+    const uBech32 = uInfo.addresses[0].address;
+    const uMweb = uInfo.mweb.addresses[0].address;
+    await ensureFunds(request, 'test-oyo-e2e', 5);
+    expect((await api(request, `wallet/send?name=test-oyo-e2e&to=${uBech32}&amount=0.30`, { method: 'POST' })).ok()).toBeTruthy();
+    expect((await api(request, `wallet/send?name=test-oyo-e2e&to=${uMweb}&amount=0.40`, { method: 'POST' })).ok()).toBeTruthy();
+    await api(request, 'mine?count=2', { method: 'POST' });
+    let utxos = [];
+    for (let i = 0; i < 40; i++) {
+      await api(request, 'chain/sync', { method: 'POST' });
+      await api(request, 'chain/mempool-sync', { method: 'POST' });
+      utxos = await (await api(request, `wallet/utxos?name=${U}`)).json();
+      if (Array.isArray(utxos) && utxos.some(u => u.commitment) && utxos.some(u => !u.commitment)) break;
+      await new Promise(r => setTimeout(r, 200));
+    }
+    expect(utxos.some(u => u.commitment)).toBeTruthy();
+    expect(utxos.some(u => !u.commitment)).toBeTruthy();
+
+    await page.goto(`/#wallet/${U}`);
+    await expect(page.locator('#send-to')).toBeVisible({ timeout: 5000 });
+    await page.locator('#send-pick-link').click();
+    await expect(page.locator('#modal-overlay.visible')).toBeVisible();
+
+    // One canonical + one MWEB row selected → warning appears.
+    await page.locator('.utxo-pick', { hasText: 'p2wpkh' }).first().click();
+    await page.locator('.utxo-pick', { hasText: 'commitment' }).first().click();
+    await expect(page.locator('#modal-body')).toContainText("can't be combined");
+
+    // Deselect the MWEB one → no longer mixed, warning clears.
+    await page.locator('.utxo-pick', { hasText: 'commitment' }).first().click();
+    await expect(page.locator('#modal-body')).not.toContainText("can't be combined");
+
+    await api(request, `wallet/delete?name=${U}`, { method: 'POST' }).catch(() => {});
+  });
+
   test('auto send: fee presets render from /api/fees and drive the estimate rate (P2.5)', async ({ page, request }) => {
     // /api/fees contract: floor >= 1 and a monotonic low<=normal<=high ladder.
     const fees = await (await api(request, 'fees')).json();
@@ -5369,6 +5409,24 @@ test.describe('OYO wallet matrix', () => {
     expect(est.amount_sat).toBe(70000000 - est.fee_sat);
 
     await api(request, `wallet/delete?name=${U}`, { method: 'POST' }).catch(() => {});
+  });
+
+  test('manual inputs rejected: an entry with both txid and commitment is ambiguous', async ({ request }) => {
+    // Contract: a pinned input is exactly one kind. Carrying both a
+    // commitment and txid:vout is ambiguous (which coin?) and rejected up
+    // front, rather than silently letting the commitment win.
+    const R = 'mtx-mi-ambig-' + stamp();
+    expect((await api(request, `wallet/create?name=${R}&type=regular&seed=${REG_SEED_PREFIX}${stamp()}&address_count=2`, { method: 'POST' })).ok()).toBeTruthy();
+    const dest = (await (await api(request, 'wallet/newaddress?name=test-e2e&type=bech32', { method: 'POST' })).json()).address;
+    const resp = await api(request, `wallet/estimate-send?name=${R}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      data: { outputs: [{ address: dest, amount_sat: 1000000 }], inputs: [{ txid: '00'.repeat(32), vout: 0, commitment: 'ab'.repeat(33) }] },
+    });
+    expect(resp.ok()).toBe(false);
+    expect(await resp.text()).toMatch(/ambiguous|both commitment and txid/i);
+
+    await api(request, `wallet/delete?name=${R}`, { method: 'POST' }).catch(() => {});
   });
 
   test('custom change R→R: change_address routes the change output (P2.3)', async ({ request }) => {
