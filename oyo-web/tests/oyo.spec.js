@@ -5258,6 +5258,119 @@ test.describe('OYO wallet matrix', () => {
     await api(request, `wallet/delete?name=${U}`, { method: 'POST' }).catch(() => {});
   });
 
+  test('manual inputs U(both sides funded) canonical-pin → stealth: routes peg-in, not mweb_send', async ({ request }) => {
+    // Mirror of the reported bug: pinning a CANONICAL coin and sending to a
+    // STEALTH address on a both-sides-funded universal wallet must route by
+    // input kind to peg-in (R→M), not by balance to mweb_send (which would
+    // reject the txid:vout pin, the way regular_send rejected an MWEB
+    // commitment in the forward case).
+    const U = 'mtx-mi-Upegin-' + stamp();
+    expect((await api(request, `wallet/create?name=${U}&type=universal&seed=${freshMwebSeed()}&address_count=2`, { method: 'POST' })).ok()).toBeTruthy();
+    const uInfo0 = await (await api(request, `wallet/info?name=${U}`)).json();
+    const uBech32 = uInfo0.addresses[0].address;
+    const uMwebAddr = uInfo0.mweb.addresses[0].address;
+
+    await ensureFunds(request, 'test-oyo-e2e', 5);
+    expect((await api(request, `wallet/send?name=test-oyo-e2e&to=${uBech32}&amount=1.0`, { method: 'POST' })).ok()).toBeTruthy();
+    expect((await api(request, `wallet/send?name=test-oyo-e2e&to=${uMwebAddr}&amount=0.5`, { method: 'POST' })).ok()).toBeTruthy();
+    await api(request, 'mine?count=2', { method: 'POST' });
+    await api(request, 'chain/sync', { method: 'POST' });
+    await api(request, 'chain/mempool-sync', { method: 'POST' });
+
+    const utxos = await (await api(request, `wallet/utxos?name=${U}`)).json();
+    const canon = utxos.find(u => u.txid && u.vout !== undefined && !u.commitment);
+    expect(canon).toBeTruthy();
+
+    const M = 'mtx-mi-Upegin-recv-' + stamp();
+    expect((await api(request, `wallet/create?name=${M}&type=mweb&seed=${freshMwebSeed()}`, { method: 'POST' })).ok()).toBeTruthy();
+    const stealthDest = (await (await api(request, `wallet/info?name=${M}`)).json()).mweb.addresses[0].address;
+
+    const est = await (await api(request, `wallet/estimate-send?name=${U}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      data: {
+        outputs: [{ address: stealthDest, amount_sat: 10000000 }],
+        inputs:  [{ txid: canon.txid, vout: canon.vout }],
+      },
+    })).json();
+    expect(est.path).toBe('peg-in');
+    expect(est.would_accept).toBe(true);
+    expect(est.inputs.length).toBe(1);
+    expect(est.inputs[0].txid).toBe(canon.txid);
+
+    await api(request, `wallet/delete?name=${U}`, { method: 'POST' }).catch(() => {});
+    await api(request, `wallet/delete?name=${M}`, { method: 'POST' }).catch(() => {});
+  });
+
+  test('manual inputs rejected: MWEB pin on a wallet with no MWEB side', async ({ request }) => {
+    // has_mweb guard: an MWEB commitment pinned on a canonical-only wallet
+    // is rejected up front by kind with a precise message.
+    const R = 'mtx-mi-nomweb-' + stamp();
+    expect((await api(request, `wallet/create?name=${R}&type=regular&seed=${REG_SEED_PREFIX}${stamp()}&address_count=2`, { method: 'POST' })).ok()).toBeTruthy();
+    const dest = (await (await api(request, 'wallet/newaddress?name=test-e2e&type=bech32', { method: 'POST' })).json()).address;
+    const resp = await api(request, `wallet/estimate-send?name=${R}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      data: { outputs: [{ address: dest, amount_sat: 1000000 }], inputs: [{ commitment: 'ab'.repeat(33) }] },
+    });
+    expect(resp.ok()).toBe(false);
+    expect(await resp.text()).toMatch(/no mweb side/i);
+
+    await api(request, `wallet/delete?name=${R}`, { method: 'POST' }).catch(() => {});
+  });
+
+  test('manual inputs rejected: canonical pin on a wallet with no canonical side', async ({ request }) => {
+    // has_p2wpkh guard: a txid:vout pin on an MWEB-only wallet is rejected
+    // up front by kind.
+    const M = 'mtx-mi-nocanon-' + stamp();
+    expect((await api(request, `wallet/create?name=${M}&type=mweb&seed=${freshMwebSeed()}`, { method: 'POST' })).ok()).toBeTruthy();
+    const dest = (await (await api(request, 'wallet/newaddress?name=test-e2e&type=bech32', { method: 'POST' })).json()).address;
+    const resp = await api(request, `wallet/estimate-send?name=${M}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      data: { outputs: [{ address: dest, amount_sat: 1000000 }], inputs: [{ txid: '00'.repeat(32), vout: 0 }] },
+    });
+    expect(resp.ok()).toBe(false);
+    expect(await resp.text()).toMatch(/no canonical side/i);
+
+    await api(request, `wallet/delete?name=${M}`, { method: 'POST' }).catch(() => {});
+  });
+
+  test('Max over multiple MWEB pins → bech32: send_all drains the full pinned set (peg-out)', async ({ request }) => {
+    // send_all over >1 pinned coin: recipient = sum(pins) − fee, with no
+    // coin dropped or double-counted.
+    const U = 'mtx-mi-maxmulti-' + stamp();
+    expect((await api(request, `wallet/create?name=${U}&type=universal&seed=${freshMwebSeed()}&address_count=2`, { method: 'POST' })).ok()).toBeTruthy();
+    const uMwebAddr = (await (await api(request, `wallet/info?name=${U}`)).json()).mweb.addresses[0].address;
+
+    await ensureFunds(request, 'test-oyo-e2e', 5);
+    expect((await api(request, `wallet/send?name=test-oyo-e2e&to=${uMwebAddr}&amount=0.2`, { method: 'POST' })).ok()).toBeTruthy();
+    expect((await api(request, `wallet/send?name=test-oyo-e2e&to=${uMwebAddr}&amount=0.5`, { method: 'POST' })).ok()).toBeTruthy();
+    await api(request, 'mine?count=2', { method: 'POST' });
+    await api(request, 'chain/sync', { method: 'POST' });
+    await api(request, 'chain/mempool-sync', { method: 'POST' });
+
+    const utxos = await (await api(request, `wallet/utxos?name=${U}`)).json();
+    const mwebUtxos = utxos.filter(u => u.commitment).sort((a, b) => a.amount_sat - b.amount_sat);
+    expect(mwebUtxos.length).toBe(2);
+    expect(mwebUtxos[0].amount_sat + mwebUtxos[1].amount_sat).toBe(70000000);
+
+    const bech32Dest = (await (await api(request, 'wallet/newaddress?name=test-e2e&type=bech32', { method: 'POST' })).json()).address;
+    const est = await (await api(request, `wallet/estimate-send?name=${U}&to=${bech32Dest}&send_all=true`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      data: { inputs: [{ commitment: mwebUtxos[0].commitment }, { commitment: mwebUtxos[1].commitment }] },
+    })).json();
+    expect(est.path).toBe('peg-out');
+    expect(est.would_accept).toBe(true);
+    expect(est.inputs.length).toBe(2);
+    expect(est.inputs_total_sat).toBe(70000000);
+    expect(est.fee_sat).toBeGreaterThan(0);
+    expect(est.amount_sat).toBe(70000000 - est.fee_sat);
+
+    await api(request, `wallet/delete?name=${U}`, { method: 'POST' }).catch(() => {});
+  });
+
   test('custom change R→R: change_address routes the change output (P2.3)', async ({ request }) => {
     const R = 'mtx-cc-' + stamp();
     expect((await api(request, `wallet/create?name=${R}&type=regular&seed=${REG_SEED_PREFIX}${stamp()}&address_count=3`, { method: 'POST' })).ok()).toBeTruthy();

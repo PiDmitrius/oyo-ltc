@@ -1276,11 +1276,16 @@ function refreshRecipientControls() {
   const maxBtn = $('#send-max-btn');
   if (maxBtn) maxBtn.style.display = multi ? 'none' : '';
   if (multi && _maxModeActive) {
-    // Adding a recipient while in Max mode invalidates Max.
+    // Adding a recipient while in Max mode invalidates Max. Clear the
+    // auto-filled drain amount too (parity with updateManualInputsSummary)
+    // so a stale "everything-minus-fee" figure can't be reused as a fixed
+    // per-recipient amount.
     _maxModeActive = false;
     _maxModeFeeRate = 0;
     const hint = $('#send-fee-hint');
     if (hint) hint.style.display = 'none';
+    const amt = $('#send-amount');
+    if (amt) amt.value = '';
   }
 }
 
